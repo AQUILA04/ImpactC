@@ -34,6 +34,8 @@ pnpm-debug.log*
 # ── IDE / Editor config ───────────────────────────────────────────────────────
 .idea/
 .vscode/
+.claude/
+mobile-client/.claude/
 *.suo
 *.ntvs*
 *.njsproj
