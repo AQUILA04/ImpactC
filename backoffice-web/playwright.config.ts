@@ -37,6 +37,7 @@ export default defineConfig({
         FRONTEND_ORIGINS: "http://127.0.0.1:3000",
         JWT_ACCESS_SECRET: "impactc-e2e-access-secret",
         JWT_REFRESH_SECRET: "impactc-e2e-refresh-secret",
+        CHAT_ENCRYPTION_KEY: "impactc-e2e-chat-encryption-key!",
         KEYCLOAK_BACKOFFICE_ENABLED: "false",
         REDIS_HOST: "127.0.0.1",
         REDIS_PORT: "6379",
