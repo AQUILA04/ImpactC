@@ -40,5 +40,6 @@ export class JourneysController {
   dashboard(@CurrentUser() user: JwtPayload) { return this.journeys.dashboard(user.sub); }
 
   @Post('internal/journeys/check-expirations')
+  @Roles(UserRole.ADMIN)
   check() { return this.journeys.checkExpirations(); }
 }

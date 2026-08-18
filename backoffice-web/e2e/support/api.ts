@@ -38,7 +38,7 @@ export async function registerApprovedMember(request: APIRequestContext, label: 
       departmentLeader: 'E2E Leader',
       profession: 'Engineer',
       financialRange: 'Stable',
-      profilePhotoUrl: 'https://example.com/profile.jpg',
+      profilePhotoUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330',
       tagline: `Profile ${label}`,
       searchMinAge: 24,
       searchMaxAge: 42,
@@ -68,7 +68,7 @@ export async function registerPendingMember(request: APIRequestContext, label: s
       departmentLeader: 'E2E Leader',
       profession: 'Designer',
       financialRange: 'Stable',
-      profilePhotoUrl: 'https://example.com/pending.jpg',
+      profilePhotoUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330',
       tagline: `Pending ${label}`,
       searchMinAge: 24,
       searchMaxAge: 42,
@@ -77,4 +77,18 @@ export async function registerPendingMember(request: APIRequestContext, label: s
   });
   const { id: profileId } = await unwrap<{ id: string }>(profile);
   return { email, token, profileId };
+}
+
+export async function createStep2Journey(request: APIRequestContext): Promise<{ journeyId: string; leaderToken: string; leaderId: string; alice: Member; bruno: Member }> {
+  const alice = await registerApprovedMember(request, 'Alice', 'FEMALE');
+  const bruno = await registerApprovedMember(request, 'Bruno', 'MALE');
+  await unwrap(await request.post(`${apiBase}/interests`, { headers: { authorization: `Bearer ${alice.token}` }, data: { targetProfileId: bruno.profileId } }));
+  const reciprocal = await unwrap<{ matchId: string }>(await request.post(`${apiBase}/interests`, { headers: { authorization: `Bearer ${bruno.token}` }, data: { targetProfileId: alice.profileId } }));
+  const leaderToken = await login(request, 'responsable@impactc.local');
+  const leader = await currentIdentity(request, leaderToken);
+  await unwrap(await request.patch(`${apiBase}/matches/${reciprocal.matchId}/leader`, { headers: { authorization: `Bearer ${leaderToken}` }, data: { leaderId: leader.sub } }));
+  const journey = await unwrap<{ id: string }>(await request.post(`${apiBase}/matches/${reciprocal.matchId}/appointments`, { headers: { authorization: `Bearer ${leaderToken}` }, data: { scheduledAt: '2030-01-01T10:00:00.000Z', location: 'Église centrale', notes: 'Fixture P1' } }));
+  for (const partner of [1, 2]) await unwrap(await request.post(`${apiBase}/journeys/${journey.id}/appointment-decisions`, { headers: { authorization: `Bearer ${leaderToken}` }, data: { partner, decision: 'CONTINUE' } }));
+  await unwrap(await request.post(`${apiBase}/journeys/${journey.id}/promote-step-2`, { headers: { authorization: `Bearer ${leaderToken}` } }));
+  return { journeyId: journey.id, leaderToken, leaderId: leader.sub, alice, bruno };
 }

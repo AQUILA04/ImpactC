@@ -39,20 +39,24 @@ export class ChatGateway implements OnGatewayConnection {
   }
 
   @SubscribeMessage('journey:join')
-  async join(@ConnectedSocket() client: Socket, @MessageBody() body: { journeyId: string }) {
+  async join(@ConnectedSocket() client: Socket, @MessageBody() body: { journeyId: string }): Promise<void> {
     await this.chat.assertMember(client.data.user.sub, body.journeyId);
     await client.join(`journey:${body.journeyId}`);
-    return { event: 'journey:joined', data: { journeyId: body.journeyId } };
+    client.emit('journey:joined', { journeyId: body.journeyId });
   }
 
   @SubscribeMessage('message:send')
-  async send(@ConnectedSocket() client: Socket, @MessageBody() body: { journeyId: string; content: string }) {
-    const result = await this.chat.send(client.data.user.sub, body.journeyId, body.content ?? '');
-    if (result.blocked) {
-      client.emit('chat:error', { code: 'ANTI_CONTACT_BLOCKED', message: result.reason });
-      return { event: 'chat:error', data: { code: 'ANTI_CONTACT_BLOCKED', message: result.reason } };
+  async send(@ConnectedSocket() client: Socket, @MessageBody() body: { journeyId: string; content: string }): Promise<void> {
+    try {
+      const result = await this.chat.send(client.data.user.sub, body.journeyId, body.content ?? '');
+      if (result.blocked) {
+        client.emit('chat:error', { code: 'ANTI_CONTACT_BLOCKED', message: result.reason });
+        return;
+      }
+      this.server.to(`journey:${body.journeyId}`).emit('message:receive', result.message);
+      client.emit('message:sent', result.message);
+    } catch {
+      client.emit('chat:error', { code: 'CHAT_ACCESS_DENIED', message: 'This Journey chat is not available.' });
     }
-    this.server.to(`journey:${body.journeyId}`).emit('message:receive', result.message);
-    return { event: 'message:sent', data: result.message };
   }
 }

@@ -97,12 +97,26 @@ export class JourneysService {
   }
 
   async checkExpirations(now = new Date()) {
-    const journeys = await this.prisma.journey.findMany({ where: { status: JourneyStatus.ACTIVE, expiresAt: { lte: now }, currentStep: { in: [JourneyStep.STEP_2_ONE_MONTH_STUDY, JourneyStep.STEP_3_THREE_MONTH_STUDY] } } });
+    const step3WarningAt = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+    const journeys = await this.prisma.journey.findMany({
+      where: {
+        status: JourneyStatus.ACTIVE,
+        OR: [
+          { currentStep: JourneyStep.STEP_2_ONE_MONTH_STUDY, expiresAt: { lte: now } },
+          { currentStep: JourneyStep.STEP_3_THREE_MONTH_STUDY, expiresAt: { lte: step3WarningAt } },
+        ],
+      },
+    });
     let alerted = 0;
     for (const journey of journeys) {
-      const milestone = journey.currentStep === JourneyStep.STEP_2_ONE_MONTH_STUDY ? 'STEP_2_DAY_30' : 'STEP_3_DAY_90';
+      const milestone = journey.currentStep === JourneyStep.STEP_2_ONE_MONTH_STUDY
+        ? 'STEP_2_DAY_30'
+        : (journey.expiresAt && journey.expiresAt <= now ? 'STEP_3_DAY_90' : 'STEP_3_DAY_85');
       const existing = await this.prisma.notification.findFirst({ where: { journeyId: journey.id, type: NotificationType.JOURNEY_EXPIRING, metadata: { path: ['milestone'], equals: milestone } } });
-      if (!existing) { await this.prisma.notification.create({ data: { userId: journey.assignedLeaderId, journeyId: journey.id, type: NotificationType.JOURNEY_EXPIRING, title: 'Journey review required', body: `Journey has reached ${milestone}.`, metadata: { milestone } } }); alerted++; }
+      if (!existing) {
+        await this.prisma.notification.create({ data: { userId: journey.assignedLeaderId, journeyId: journey.id, type: NotificationType.JOURNEY_EXPIRING, title: 'Journey review required', body: `Journey has reached ${milestone}.`, metadata: { milestone } } });
+        alerted++;
+      }
     }
     return { evaluated: journeys.length, alerted };
   }
