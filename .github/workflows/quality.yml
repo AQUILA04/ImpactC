@@ -15,6 +15,43 @@ jobs:
   build-and-unit:
     name: Build and API regression
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_secure_pass
+          POSTGRES_DB: impactc_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d impactc_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      minio:
+        image: minio/minio:latest
+        env:
+          MINIO_ROOT_USER: impactc_minio
+          MINIO_ROOT_PASSWORD: impactc_minio_change_me
+        entrypoint: minio
+        command: server /data --console-address ":9001"
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,7 +73,26 @@ jobs:
         run: npm test -- --runInBand
       - name: Run backend E2E smoke
         working-directory: backend-service
-        run: npm run test:e2e -- --runInBand
+        env:
+          DATABASE_URL: postgresql://postgres:postgres_secure_pass@127.0.0.1:5432/impactc_e2e?schema=public
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: 6379
+          REDIS_DB: 0
+          BULLMQ_PREFIX: impactc-ci-smoke
+          S3_ENDPOINT: http://127.0.0.1:9000
+          S3_BUCKET: impactc-media-e2e
+          S3_ACCESS_KEY: impactc_minio
+          S3_SECRET_KEY: impactc_minio_change_me
+          S3_AUTO_CREATE_BUCKET: "true"
+          JWT_ACCESS_SECRET: impactc-ci-access-secret
+          JWT_REFRESH_SECRET: impactc-ci-refresh-secret
+          FRONTEND_ORIGINS: http://127.0.0.1:3000
+          KEYCLOAK_BACKOFFICE_ENABLED: "false"
+          NOTIFICATION_HUB_ENABLED: "false"
+          IMPACTC_PROCESS_ROLE: api
+        run: |
+          npx prisma migrate deploy
+          npm run test:e2e -- --runInBand
       - name: Install backoffice dependencies
         working-directory: backoffice-web
         run: npm ci
