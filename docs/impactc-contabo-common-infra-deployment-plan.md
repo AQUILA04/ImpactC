@@ -68,11 +68,29 @@ Le guide consommateur prévoit un realm Keycloak par produit. [1] ImpactC utilis
 
 Aucun compte membre n’est migré vers Keycloak dans cette phase. Le lot backoffice doit définir le mapping des rôles Keycloak vers `RESPONSABLE` et `ADMIN`, le provisionnement des premiers superviseurs, le contrôle des JWT OIDC côté API et une procédure de révocation des accès internes.
 
-### 3.2 Services externes et échelle
+### 3.2 Thème Keycloak backoffice — livrable requis
+
+Le realm `impactc` utilisera le thème propriétaire **`impactc-backoffice`** pour les types `login`, `email` et `account`. Il étendra le thème Keycloak plutôt que de modifier les ressources embarquées, afin de limiter le coût des mises à jour. Le thème devra être livré comme archive JAR versionnée dans l’image Keycloak de `optimize-common-infra` ou comme montage en lecture seule administré par ce dépôt. [12]
+
+| Parcours ou gabarit                                    | Exigence ImpactC                                                                                  | Règle de sécurité et d’expérience                                                                                                  |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `login.ftl`                                            | Connexion Responsable/Admin, marque ImpactC, lien d’assistance et état de session expirée.        | Libellés français, labels visibles, navigation clavier, contraste minimal 4,5:1 et aucun identifiant prérempli.                    |
+| `login-reset-password.ftl`                             | Demande « Mot de passe oublié ».                                                                  | Réponse générique, sans révéler si une adresse existe ; redirection HTTPS seulement.                                               |
+| `login-update-password.ftl`                            | Premier accès, mot de passe temporaire et changement imposé.                                      | Confirmation de mot de passe, politique de robustesse affichée et message d’erreur au champ.                                       |
+| `login-verify-email.ftl` et `login-config-totp.ftl`    | Vérification de l’e-mail et enrôlement MFA des superviseurs.                                      | `VERIFY_EMAIL` et `CONFIGURE_TOTP` requis avant l’accès au backoffice.                                                             |
+| `info.ftl`, `error.ftl`, `login-otp.ftl`, `footer.ftl` | États de succès, erreur, code MFA et aide.                                                        | Messages non techniques, pas de détail sur les comptes, lien vers le support interne.                                              |
+| `account`                                              | Consultation de session, changement de mot de passe et gestion MFA par le superviseur.            | Même charte, accès HTTPS et contrôle de session Keycloak.                                                                          |
+| E-mails HTML et texte                                  | Réinitialisation de mot de passe, actions imposées, vérification d’e-mail et alertes de sécurité. | Domaine expéditeur validé, URLs absolues HTTPS, contenu français, expiration claire et absence de données personnelles superflues. |
+
+Le design est **minimaliste, professionnel et accessible**, avec fond clair `#F8FAFC`, texte `#1E293B`, primaire `#2563EB`, accent `#F97316` limité aux appels à l’action, et typographie Inter. Les ressources doivent être locales, légères, sans script tiers ni pisteur. Les variantes sombre et mouvement réduit doivent respecter les préférences du navigateur. Le français est la locale par défaut et l’anglais est le repli.
+
+Le realm activera `Forgot Password`, `Verify Email` et l’exécution des actions requises `UPDATE_PASSWORD` et `CONFIGURE_TOTP`. L’SMTP de production est donc un prérequis de première version : Mailpit reste limité aux tests locaux. Les tests doivent couvrir l’envoi de chaque e-mail, l’expiration du lien, la réutilisation d’un lien, l’échec MFA, la déconnexion et le blocage après échecs successifs.
+
+### 3.3 Services externes et échelle
 
 ImpactC utilise BullMQ/Redis pour les jalons de parcours et Socket.io pour le chat. Une seule réplique API est acceptable pour le lancement ; le worker doit être séparé avant le scale-out. Avec plusieurs répliques API, il faudra ajouter l’adaptateur Socket.io Redis et une stratégie de session WebSocket cohérente, afin que les messages d’un Journey atteignent les clients reliés à d’autres répliques.
 
-Mailpit est un outil de capture SMTP de développement ; il ne doit pas être utilisé pour délivrer des messages aux membres en production. Tant qu’ImpactC ne délivre que des notifications en base, aucune dépendance SMTP publique n’est requise. Si les e-mails transactionnels sont activés, le plan doit ajouter un fournisseur SMTP réel et ses secrets.
+Mailpit est un outil de capture SMTP de développement ; il ne doit pas être utilisé en production. Même si les notifications membres restent en base dans la première version, Keycloak exige déjà un fournisseur SMTP transactionnel réel pour la vérification d’e-mail, l’oubli de mot de passe et les actions obligatoires du backoffice. Ses secrets et le domaine expéditeur validé sont donc requis avant la préproduction.
 
 ## 4. Plan de réalisation proposé
 
@@ -97,6 +115,8 @@ Créer des Dockerfiles multi-stage reproductibles pour le backend NestJS et le b
 Modifier le backend afin de lire et valider au démarrage les variables de production. Les changements minimaux sont : prise en charge de `REDIS_PASSWORD`, configuration d’un préfixe BullMQ `impactc:`, usage d’un index Redis réservé, restriction de l’origine Socket.io par `FRONTEND_ORIGINS`, et réglages CORS limités aux hôtes HTTPS ImpactC. Les secrets JWT membres doivent être longs, aléatoires, différents entre access/refresh et jamais inclus dans les images.
 
 Intégrer Keycloak **uniquement au backoffice** : créer le realm `impactc` dans `optimize-common-infra`, le client OIDC `impactc-backoffice` avec redirections limitées à `https://impactc-admin.optimizesolux.com/*`, les rôles realm `RESPONSABLE` et `ADMIN`, ainsi que les premiers comptes de supervision. Le backoffice utilisera Authorization Code avec PKCE vers `https://auth.optimizesolux.com/realms/impactc`; l’API validera les access tokens OIDC uniquement sur les routes de supervision et mappera les rôles Keycloak vers son RBAC existant. Les routes membres et le client Expo restent sur les JWT ImpactC.
+
+Construire et packager le thème `impactc-backoffice` avec ses types `login`, `email` et `account`, ses traductions `fr`/`en`, son favicon et ses gabarits de connexion, oubli/réinitialisation de mot de passe, mise à jour obligatoire, vérification e-mail, MFA, erreurs et e-mails transactionnels. Le realm sélectionnera ce thème pour Login, Account et Email, activera `Forgot Password` et rendra `VERIFY_EMAIL`, `UPDATE_PASSWORD` et `CONFIGURE_TOTP` obligatoires pour les rôles de supervision.
 
 Adapter le service média à MinIO commun : `S3_ENDPOINT=http://minio:9000`, bucket privé `impactc-media`, identifiant MinIO applicatif dédié, région `us-east-1`. Le bucket et sa politique doivent être provisionnés par un job d’infrastructure avant le démarrage applicatif. L’API ne doit pas utiliser le compte root MinIO et le compte ImpactC ne doit avoir accès qu’à son bucket et aux opérations objet nécessaires.
 
@@ -126,7 +146,7 @@ secret/data/optimizesolux/impactc/auth
 secret/data/optimizesolux/impactc/redis
 secret/data/optimizesolux/impactc/s3
 secret/data/optimizesolux/impactc/oidc     # client OIDC backoffice Keycloak
-secret/data/optimizesolux/impactc/smtp     # si e-mail transactionnel activé
+secret/data/optimizesolux/impactc/smtp     # SMTP Keycloak : réinitialisation, vérification et actions requises
 ```
 
 Créer un rôle AppRole ImpactC à lecture minimale, puis fournir `role_id` et `secret_id` uniquement au processus de déploiement ou à un Vault Agent. [5] Pour la première version, les secrets peuvent être matérialisés dans le `.env` produit avec permissions strictes, mais la cible doit être une injection via Vault Agent afin de ne pas dupliquer durablement les secrets entre CI et serveur.
@@ -147,32 +167,32 @@ Le déploiement procédera dans l’ordre suivant : téléchargement des images,
 
 ### Phase 6 — Validation préproduction puis bascule production
 
-Créer d’abord une stack de préproduction avec des hôtes distincts, des secrets différents et des données anonymisées. Tester : inscription, modération, découverte, upload original/miniature via MinIO commun, création Journey, réception Socket.io, worker d’échéance, contrôle RBAC, CORS depuis les deux frontends, redémarrage de conteneur, restore PostgreSQL et accès Grafana/Loki.
+Créer d’abord une stack de préproduction avec des hôtes distincts, des secrets différents et des données anonymisées. Tester : inscription, modération, découverte, upload original/miniature via MinIO commun, création Journey, réception Socket.io, worker d’échéance, contrôle RBAC, CORS depuis les deux frontends, redémarrage de conteneur, restore PostgreSQL et accès Grafana/Loki. Pour Keycloak, tester les écrans de connexion, mot de passe oublié, e-mail de réinitialisation, lien expiré ou réutilisé, mot de passe imposé, vérification e-mail, configuration TOTP, erreur MFA, déconnexion, messages français et parcours clavier.
 
 Après acceptation, répéter exactement la même release en production. Les contrôles de sortie sont le healthcheck API, le test d’un login OIDC `RESPONSABLE` puis `ADMIN` dans le backoffice, le refus d’un token membre sur les routes de supervision, le test upload/lecture de miniature, les métriques OTel visibles, l’absence d’erreurs dans Loki et la présence d’une sauvegarde exploitable.
 
 ## 5. Sauvegarde, sécurité et exploitation
 
-| Domaine            | Exigence de production                                             | Mise en œuvre à planifier                                                                                                                                                    |
-| ------------------ | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PostgreSQL ImpactC | Restauration documentée et testée, pas seulement un volume Docker. | Dump chiffré quotidien + conservation définie + copie hors VPS ; test de restauration mensuel.                                                                               |
-| Médias MinIO       | Les photos sont des données personnelles.                          | Bucket privé, compte dédié, sauvegarde/versioning ou réplication hors VPS, politique de suppression alignée aux demandes RGPD.                                               |
-| Secrets            | Pas de secret Git, image ou log.                                   | Vault/AppRole, GitHub environments, `.env` serveur en `0600` seulement si transition.                                                                                        |
-| Réseau             | Réduire les ports de l’hôte.                                       | Seuls 80/443 publics ; PostgreSQL, Redis, MinIO et Vault accessibles via réseaux Docker selon besoin.                                                                        |
-| Identité           | Réduction du risque de prise de compte.                            | Realm Keycloak `impactc` pour Responsable/Admin, Authorization Code + PKCE, mapping RBAC vérifié, MFA/politique de mot de passe du realm ; rotation séparée des JWT membres. |
-| Journaux           | Ne pas exposer de données sensibles.                               | Logs structurés stdout, redaction de jetons/médias/coordonnées ; rétention Loki définie.                                                                                     |
-| Disponibilité      | Éviter les faux déploiements sains.                                | Healthchecks readiness, restart `unless-stopped`, alertes à définir car Alertmanager n’est pas encore inclus dans common-infra. [6]                                          |
+| Domaine            | Exigence de production                                             | Mise en œuvre à planifier                                                                                                                                                                            |
+| ------------------ | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PostgreSQL ImpactC | Restauration documentée et testée, pas seulement un volume Docker. | Dump chiffré quotidien + conservation définie + copie hors VPS ; test de restauration mensuel.                                                                                                       |
+| Médias MinIO       | Les photos sont des données personnelles.                          | Bucket privé, compte dédié, sauvegarde/versioning ou réplication hors VPS, politique de suppression alignée aux demandes RGPD.                                                                       |
+| Secrets            | Pas de secret Git, image ou log.                                   | Vault/AppRole, GitHub environments, `.env` serveur en `0600` seulement si transition.                                                                                                                |
+| Réseau             | Réduire les ports de l’hôte.                                       | Seuls 80/443 publics ; PostgreSQL, Redis, MinIO et Vault accessibles via réseaux Docker selon besoin.                                                                                                |
+| Identité           | Réduction du risque de prise de compte.                            | Realm Keycloak `impactc`, thème `impactc-backoffice` Login/Email/Account, Authorization Code + PKCE, MFA obligatoire, mapping RBAC vérifié, SMTP transactionnel et rotation séparée des JWT membres. |
+| Journaux           | Ne pas exposer de données sensibles.                               | Logs structurés stdout, redaction de jetons/médias/coordonnées ; rétention Loki définie.                                                                                                             |
+| Disponibilité      | Éviter les faux déploiements sains.                                | Healthchecks readiness, restart `unless-stopped`, alertes à définir car Alertmanager n’est pas encore inclus dans common-infra. [6]                                                                  |
 
 ## 6. Séquence recommandée
 
-| Priorité | Lot                                                                 | Dépendance                                  | Résultat mesurable                                                      |
-| -------: | ------------------------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------- |
-|       P0 | Realm Keycloak backoffice, domaines retenus, sauvegardes            | Parties prenantes produit et infrastructure | Realm/client OIDC configurés, DNS déclaré, aucun choix ambigu bloquant. |
-|       P1 | Dockerfiles, compose ImpactC, configuration Redis/MinIO/CORS/health | P0                                          | Produit conteneurisé et exécutable hors environnement local.            |
-|       P2 | Base, bucket MinIO, secrets Vault, migration `deploy`               | P1 + socle Contabo                          | Services internes fonctionnels sans secrets root.                       |
-|       P3 | CI GHCR, CD SSH, rollback et sauvegardes                            | P1–P2                                       | Déploiement préprod par SHA et restauration testée.                     |
-|       P4 | OTel, dashboard ImpactC, scénarios E2E préprod                      | P3                                          | Observabilité et parcours métier validés sur la topologie cible.        |
-|       P5 | Bascule production contrôlée                                        | P4                                          | Release active, smoke tests, monitoring et plan de rollback validés.    |
+| Priorité | Lot                                                                 | Dépendance                                  | Résultat mesurable                                                                 |
+| -------: | ------------------------------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------- |
+|       P0 | Realm, thème Keycloak backoffice, domaines et sauvegardes           | Parties prenantes produit et infrastructure | Realm/client OIDC/thème/SMTP configurés, DNS déclaré, aucun choix ambigu bloquant. |
+|       P1 | Dockerfiles, compose ImpactC, configuration Redis/MinIO/CORS/health | P0                                          | Produit conteneurisé et exécutable hors environnement local.                       |
+|       P2 | Base, bucket MinIO, secrets Vault, migration `deploy`               | P1 + socle Contabo                          | Services internes fonctionnels sans secrets root.                                  |
+|       P3 | CI GHCR, CD SSH, rollback et sauvegardes                            | P1–P2                                       | Déploiement préprod par SHA et restauration testée.                                |
+|       P4 | OTel, dashboard ImpactC, scénarios E2E préprod                      | P3                                          | Observabilité et parcours métier validés sur la topologie cible.                   |
+|       P5 | Bascule production contrôlée                                        | P4                                          | Release active, smoke tests, monitoring et plan de rollback validés.               |
 
 ## 7. Informations restant à confirmer
 
@@ -203,3 +223,4 @@ La publication d’un APK `prod` nécessite le keystore de release fourni exclus
 [9]: https://github.com/AQUILA04/ELYKIA/blob/main/.github/actions/build-mobile-apk/action.yml "ELYKIA — APK build action"
 [10]: https://github.com/AQUILA04/ELYKIA/blob/main/.github/scripts/publish-mobile-apk.sh "ELYKIA — MinIO APK publication"
 [11]: https://docs.expo.dev/guides/local-app-production/ "Expo — Create a release build locally"
+[12]: https://www.keycloak.org/ui-customization/themes "Keycloak — Working with themes"
