@@ -41,7 +41,7 @@ export class ResponseInterceptor implements NestInterceptor {
         status: 'OK',
         statusCode: response.statusCode ?? HttpStatus.OK,
         message: 'default.message.success',
-        service: 'IMPACTC-SERVICE',
+        service: 'OPTIMIZE-SERVICE',
         data,
       })),
     );
@@ -60,7 +60,7 @@ export class HttpExceptionFilter {
       status: 'ERROR',
       statusCode,
       message,
-      service: 'IMPACTC-SERVICE',
+      service: 'OPTIMIZE-SERVICE',
       data: null,
     });
   }
