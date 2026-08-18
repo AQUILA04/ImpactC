@@ -24,7 +24,7 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [
     {
-      command: "npm run start:dev",
+      command: "npx prisma migrate deploy && npm run start:dev",
       cwd: "../backend-service",
       url: "http://127.0.0.1:3001/api/docs",
       reuseExistingServer: false,
