@@ -110,3 +110,14 @@ Les specs Playwright et Jest emploient `@p0`, `@p1`, `@p2` et le domaine, par ex
 | [2] | `_bmad-output/planning-artifacts/architecture.md` |
 | [3] | `_bmad-output/test-artifacts/test-design-architecture.md` |
 | [4] | `docs/epic-delivery-plan.md` |
+
+## Exécution d’intégration locale — 18 août 2026
+
+| Parcours | Résultat | Vérifications exécutées |
+|---|---:|---|
+| Onboarding et modération | Réussi | Inscription, création de profil `PENDING_VALIDATION`, connexion Responsable et approbation. |
+| Intérêt et match réciproque | Réussi | Deux profils approuvés de genres opposés, intérêt confidentiel unilatéral, réciprocité et création de Match. |
+| Journey supervisé | Réussi | Affectation de Responsable, rendez-vous, doubles consentements, promotion vers Step 2 puis Step 3, terminaison et statut `TERMINATED`. |
+| Chat sécurisé | Réussi | Envoi autorisé, persistance chiffrée vérifiée en base et blocage d’un numéro de téléphone avec réponse `blocked: true`. |
+
+Les scénarios ont été exercés contre les services locaux NestJS, PostgreSQL et Redis. Les scripts d’onboarding et de match sont versionnés sous `backend-service/test/` ; les scénarios Journey et chat doivent encore être consolidés sous forme de scripts déterministes dans la prochaine itération.
