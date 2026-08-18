@@ -1,65 +1,81 @@
-import Image from "next/image";
+'use client';
+
+import { useMemo, useState } from 'react';
+import { CheckCircle2, HeartHandshake, LayoutDashboard, ShieldCheck, UsersRound } from 'lucide-react';
+
+const API = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3001/api';
+
+type ApiEnvelope<T> = { data: T };
+type Profile = { id: string; firstName: string; lastName: string; city: string; profession: string; churchDepartment: string; user: { email: string } };
 
 export default function Home() {
+  const [email, setEmail] = useState('responsable@impactc.local');
+  const [password, setPassword] = useState('SecurePass123!');
+  const [token, setToken] = useState('');
+  const [active, setActive] = useState<'dashboard' | 'profiles' | 'matches' | 'journeys' | 'audit' | 'testimonials'>('dashboard');
+  const [data, setData] = useState<Record<string, unknown>>({});
+  const [message, setMessage] = useState('Connectez-vous pour superviser les parcours.');
+
+  const headers = useMemo(() => ({ 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }), [token]);
+  const request = async <T,>(path: string, options?: RequestInit): Promise<T> => {
+    const response = await fetch(`${API}${path}`, { ...options, headers: { ...headers, ...(options?.headers ?? {}) }, credentials: 'include' });
+    const body = (await response.json()) as ApiEnvelope<T> & { message?: string };
+    if (!response.ok) throw new Error(Array.isArray(body.message) ? body.message.join(', ') : body.message ?? 'Une erreur est survenue');
+    return body.data;
+  };
+
+  const login = async () => {
+    try {
+      const result = await request<{ accessToken: string; role: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+      setToken(result.accessToken);
+      setMessage(`Session ${result.role} ouverte.`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Connexion impossible'); }
+  };
+
+  const load = async (section = active) => {
+    try {
+      const path = { dashboard: '/dashboard', profiles: '/moderation/profiles', matches: '/matches?type=match', journeys: '/journeys/kanban', audit: '/audit-logs', testimonials: '/testimonials' }[section];
+      const result = await request<unknown>(path);
+      setData((previous) => ({ ...previous, [section]: result }));
+      setMessage('Données actualisées.');
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Chargement impossible'); }
+  };
+
+  const moderate = async (profileId: string, decision: 'approve' | 'reject') => {
+    try {
+      await request(`/moderation/profiles/${profileId}`, { method: 'PATCH', body: JSON.stringify({ decision, note: decision === 'reject' ? 'Merci de compléter les informations de vérification.' : undefined }) });
+      await load('profiles');
+      setMessage(decision === 'approve' ? 'Profil approuvé et notification créée.' : 'Profil rejeté avec motif de révision.');
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Action impossible'); }
+  };
+
+  const nav = [
+    ['dashboard', 'Vue d’ensemble', LayoutDashboard], ['profiles', 'Modération', UsersRound], ['matches', 'Matches', HeartHandshake], ['journeys', 'Cheminements', ShieldCheck], ['audit', 'Audit', ShieldCheck], ['testimonials', 'Témoignages', CheckCircle2],
+  ] as const;
+  const dashboard = data.dashboard as { pendingApprovals: number; activeMatches: number; activeJourneys: number; weeklyAppointments: number } | undefined;
+  const profiles = (data.profiles as Profile[] | undefined) ?? [];
+  const matches = (data.matches as Array<{ id: string; partnerOne: Profile; partnerTwo: Profile; assignedLeaderId?: string }> | undefined) ?? [];
+  const journeys = (data.journeys as Array<{ id: string; currentStep: string; partnerOne: Profile; partnerTwo: Profile; daysRemaining: number | null }> | undefined) ?? [];
+  const audits = (data.audit as Array<{ id: string; action: string; targetType: string; createdAt: string; actor?: { email: string } }> | undefined) ?? [];
+  const testimonials = (data.testimonials as Array<{ id: string; title: string; content: string; coupleNames: string; isApproved: boolean }> | undefined) ?? [];
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+    <main className="min-h-screen bg-[#F8F7F4] text-[#1F2937]">
+      <header className="border-b border-[#EFEFEF] bg-white px-5 py-4 shadow-sm"><div className="mx-auto flex max-w-7xl items-center justify-between"><div><p className="text-xs font-semibold tracking-[0.2em] text-[#856404]">IMPACTC</p><h1 className="font-serif text-2xl font-bold text-[#2C4270]">Espace Responsables</h1></div><span className="rounded-full bg-[#4CAF82]/10 px-3 py-1 text-sm font-medium text-[#356c52]">{token ? 'Session sécurisée' : 'Connexion requise'}</span></div></header>
+      <div className="mx-auto grid max-w-7xl gap-6 px-5 py-6 lg:grid-cols-[230px_1fr]">
+        <aside className="rounded-2xl bg-[#3B5998] p-3 text-white"><nav className="space-y-1">{nav.map(([key, label, Icon]) => <button key={key} onClick={() => { setActive(key); if (token) void load(key); }} className={`flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-semibold transition ${active === key ? 'bg-white/20' : 'hover:bg-white/10'}`}><Icon size={18} aria-hidden="true" />{label}</button>)}</nav></aside>
+        <section className="min-w-0 space-y-5">
+          {!token ? <div className="rounded-2xl bg-white p-6 shadow-sm"><h2 className="font-serif text-2xl font-bold text-[#2C4270]">Connexion de supervision</h2><p className="mt-2 text-sm text-slate-600">Les comptes Responsable et Administrateur sont provisionnés par l’organisation.</p><div className="mt-5 grid gap-4 sm:grid-cols-2"><label className="grid gap-1 text-sm font-medium">E-mail<input value={email} onChange={(event) => setEmail(event.target.value)} className="min-h-12 rounded-lg border border-slate-300 px-3" /></label><label className="grid gap-1 text-sm font-medium">Mot de passe<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="min-h-12 rounded-lg border border-slate-300 px-3" /></label></div><button onClick={() => void login()} className="mt-5 min-h-12 rounded-lg bg-[#3B5998] px-5 font-semibold text-white hover:bg-[#2C4270]">Ouvrir la session</button></div> : null}
+          <div aria-live="polite" className="rounded-lg border border-[#C9A84C]/30 bg-[#C9A84C]/10 px-4 py-3 text-sm text-[#856404]">{message}</div>
+          {token && <><div className="flex items-center justify-between"><div><h2 className="font-serif text-3xl font-bold text-[#2C4270]">{nav.find(([key]) => key === active)?.[1]}</h2><p className="text-sm text-slate-600">Les actions sensibles sont conservées dans le journal de relation.</p></div><button onClick={() => void load()} className="min-h-12 rounded-lg border border-[#3B5998] px-4 text-sm font-semibold text-[#2C4270] hover:bg-[#3B5998]/5">Actualiser</button></div>
+          {active === 'dashboard' && <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[['Profils en attente', dashboard?.pendingApprovals], ['Matches actifs', dashboard?.activeMatches], ['Cheminements', dashboard?.activeJourneys], ['RDV cette semaine', dashboard?.weeklyAppointments]].map(([label, value]) => <article key={String(label)} className="rounded-2xl bg-white p-5 shadow-sm"><p className="text-sm font-medium text-slate-600">{label}</p><p className="mt-2 font-serif text-4xl font-bold text-[#2C4270]">{value ?? '—'}</p></article>)}</div>}
+          {active === 'profiles' && <div className="overflow-x-auto rounded-2xl bg-white shadow-sm"><table className="w-full text-left text-sm"><thead className="bg-[#EFEFEF] text-slate-700"><tr><th className="p-4">Membre</th><th className="p-4">Département</th><th className="p-4">Ville</th><th className="p-4">Actions</th></tr></thead><tbody>{profiles.map((profile) => <tr key={profile.id} className="border-t"><td className="p-4 font-semibold">{profile.firstName} {profile.lastName}<div className="font-normal text-slate-500">{profile.user.email}</div></td><td className="p-4">{profile.churchDepartment}</td><td className="p-4">{profile.city}</td><td className="p-4"><button onClick={() => void moderate(profile.id, 'approve')} className="mr-2 min-h-10 rounded bg-[#4CAF82] px-3 font-semibold text-white">Approuver</button><button onClick={() => void moderate(profile.id, 'reject')} className="min-h-10 rounded border border-[#EF4444] px-3 font-semibold text-[#b91c1c]">Réviser</button></td></tr>)}{profiles.length === 0 && <tr><td colSpan={4} className="p-8 text-center text-slate-500">Aucun profil en attente.</td></tr>}</tbody></table></div>}
+          {active === 'matches' && <div className="grid gap-4 md:grid-cols-2">{matches.map((match) => <article key={match.id} className="rounded-2xl bg-white p-5 shadow-sm"><p className="text-xs font-semibold tracking-wide text-[#856404]">MATCH BILATÉRAL</p><h3 className="mt-2 font-serif text-xl font-bold">{match.partnerOne.firstName} & {match.partnerTwo.firstName}</h3><p className="mt-2 text-sm text-slate-600">Affectez un Responsable puis planifiez le premier rendez-vous.</p></article>)}{matches.length === 0 && <p className="rounded-2xl bg-white p-8 text-center text-slate-500">Aucun match à coordonner.</p>}</div>}
+          {active === 'journeys' && <div className="grid gap-4 xl:grid-cols-4">{['STEP_1_FIRST_APPOINTMENT', 'STEP_2_ONE_MONTH_STUDY', 'STEP_3_THREE_MONTH_STUDY', 'STEP_4_FINAL'].map((step, index) => <section key={step} className="min-h-48 rounded-2xl bg-white p-4 shadow-sm"><h3 className="font-semibold text-[#2C4270]">Étape {index + 1}</h3><div className="mt-3 space-y-3">{journeys.filter((journey) => journey.currentStep === step).map((journey) => <article key={journey.id} className="rounded-xl border border-slate-200 p-3"><p className="font-semibold">{journey.partnerOne.firstName} & {journey.partnerTwo.firstName}</p><p className={journey.daysRemaining !== null && journey.daysRemaining <= 5 ? 'text-sm font-semibold text-[#b91c1c]' : 'text-sm text-slate-600'}>{journey.daysRemaining === null ? 'Échéance à définir' : `${journey.daysRemaining} jours restants`}</p></article>)}</div></section>)}</div>}
+          {active === 'audit' && <div className="rounded-2xl bg-white p-4 shadow-sm">{audits.map((audit) => <article key={audit.id} className="border-b py-3 text-sm"><span className="font-semibold text-[#2C4270]">{audit.action}</span><span className="mx-2 text-slate-400">·</span>{audit.targetType}<span className="mx-2 text-slate-400">·</span>{new Date(audit.createdAt).toLocaleString('fr-FR')}</article>)}{audits.length === 0 && <p className="p-4 text-slate-500">Aucun événement correspondant.</p>}</div>}
+          {active === 'testimonials' && <div className="grid gap-4 md:grid-cols-2">{testimonials.map((story) => <article key={story.id} className="rounded-2xl bg-white p-5 shadow-sm"><p className="text-xs font-semibold text-[#856404]">{story.isApproved ? 'PUBLIÉ' : 'BROUILLON'}</p><h3 className="mt-2 font-serif text-xl font-bold">{story.title}</h3><p className="mt-2 text-sm text-slate-600">{story.content}</p><p className="mt-3 text-sm font-semibold">{story.coupleNames}</p></article>)}{testimonials.length === 0 && <p className="rounded-2xl bg-white p-8 text-slate-500">Aucun témoignage pour le moment.</p>}</div>}</>}
+        </section>
+      </div>
+    </main>
   );
 }
