@@ -140,6 +140,7 @@ model CelibataireProfile {
   activitySector        String?       @map("activity_sector") @db.VarChar(120)
   financialRange        String        @map("financial_range") @db.VarChar(80)
   profilePhotoUrl       String        @map("profile_photo_url") @db.VarChar(500)
+  profilePhotoThumbUrl  String?       @map("profile_photo_thumb_url") @db.VarChar(500)
   tagline               String        @db.VarChar(180)
   personalDescription   String?       @map("personal_description") @db.Text
   searchMinAge          Int           @map("search_min_age")

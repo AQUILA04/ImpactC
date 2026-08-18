@@ -19,6 +19,7 @@ import { JourneyExpirationProcessor, JourneyExpirationScheduler, JOURNEY_EXPIRAT
 import { JourneysService } from './modules/journeys/journeys.service';
 import { OperationsController } from './modules/operations/operations.controller';
 import { ProfileMediaController } from './modules/profiles/profile-media.controller';
+import { ProfileMediaStorage } from './modules/profiles/profile-media.storage';
 import { ProfilesController } from './modules/profiles/profiles.controller';
 import { ProfilesService } from './modules/profiles/profiles.service';
 
@@ -36,6 +37,7 @@ import { ProfilesService } from './modules/profiles/profiles.service';
     AuditService,
     AuthService,
     ProfilesService,
+    ProfileMediaStorage,
     InterestsService,
     JourneysService,
     JourneyExpirationScheduler,

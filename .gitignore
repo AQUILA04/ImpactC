@@ -55,3 +55,8 @@ prisma/generated/
 
 # ── Turbopack / SWC ───────────────────────────────────────────────────────────
 .swc/
+
+# ── Local MinIO development / E2E state ─────────────────────────────────────
+.minio-data/
+.minio-e2e-data/
+.minio.pid

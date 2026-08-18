@@ -28,6 +28,7 @@ export class ProfilesService {
       consent: undefined,
       dateOfBirth,
       consentAcceptedAt: new Date(),
+      profilePhotoThumbUrl: this.thumbnailReference(input.profilePhotoUrl),
       status: ProfileStatus.PENDING_VALIDATION,
       moderationNote: null,
       moderatedAt: null,
@@ -109,7 +110,7 @@ export class ProfilesService {
       orderBy: { createdAt: 'desc' },
       take: Math.min(Math.max(take, 1), 30) + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      select: { id: true, firstName: true, gender: true, dateOfBirth: true, city: true, churchDepartment: true, profession: true, profilePhotoUrl: true, tagline: true, activitySector: true },
+      select: { id: true, firstName: true, gender: true, dateOfBirth: true, city: true, churchDepartment: true, profession: true, profilePhotoUrl: true, profilePhotoThumbUrl: true, tagline: true, activitySector: true },
     });
     const next = profiles.length > take ? profiles.pop()?.id : undefined;
     return { items: profiles.map((profile) => ({ ...profile, age: this.age(profile.dateOfBirth) })), nextCursor: next ?? null };
@@ -136,7 +137,7 @@ export class ProfilesService {
     if (!input.searchMinAge || !input.searchMaxAge || input.searchMinAge < 18 || input.searchMaxAge < input.searchMinAge) throw new BadRequestException('Search age range is invalid');
     const dob = new Date(input.dateOfBirth);
     if (Number.isNaN(dob.getTime()) || this.age(dob) < 18) throw new BadRequestException('You must be at least 18 years old');
-    if (/^media:\/\/profile\/[a-f0-9-]{36}\.webp$/i.test(input.profilePhotoUrl)) return;
+    if (/^media:\/\/profile\/[a-f0-9-]{36}$/i.test(input.profilePhotoUrl)) return;
     try {
       const url = new URL(input.profilePhotoUrl);
       const allowedHosts = (process.env.PROFILE_MEDIA_ALLOWED_HOSTS ?? 'images.unsplash.com,res.cloudinary.com').split(',').map((host) => host.trim().toLowerCase()).filter(Boolean);
@@ -144,6 +145,10 @@ export class ProfilesService {
     } catch {
       throw new BadRequestException('A valid HTTPS profile photo URL from an approved media host is required');
     }
+  }
+
+  private thumbnailReference(profilePhotoUrl: string): string | null {
+    return /^media:\/\/profile\/[a-f0-9-]{36}$/i.test(profilePhotoUrl) ? `${profilePhotoUrl}/thumbnail` : null;
   }
 
   private age(dateOfBirth: Date): number {

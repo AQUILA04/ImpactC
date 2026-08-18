@@ -26,7 +26,7 @@ export default defineConfig({
       url: 'http://127.0.0.1:3001/api/docs',
       reuseExistingServer: false,
       timeout: 120_000,
-      env: { ...process.env, PORT: '3001', DATABASE_URL: databaseUrl, NODE_ENV: 'test', FRONTEND_ORIGINS: 'http://127.0.0.1:3000', JWT_ACCESS_SECRET: 'impactc-e2e-access-secret', JWT_REFRESH_SECRET: 'impactc-e2e-refresh-secret', REDIS_HOST: '127.0.0.1', REDIS_PORT: '6379' },
+      env: { ...process.env, PORT: '3001', DATABASE_URL: databaseUrl, NODE_ENV: 'test', FRONTEND_ORIGINS: 'http://127.0.0.1:3000', JWT_ACCESS_SECRET: 'impactc-e2e-access-secret', JWT_REFRESH_SECRET: 'impactc-e2e-refresh-secret', REDIS_HOST: '127.0.0.1', REDIS_PORT: '6379', S3_ENDPOINT: process.env.S3_ENDPOINT ?? 'http://127.0.0.1:9000', S3_REGION: process.env.S3_REGION ?? 'us-east-1', S3_BUCKET: process.env.S3_BUCKET ?? 'impactc-media-e2e', S3_ACCESS_KEY: process.env.S3_ACCESS_KEY ?? 'impactc_minio', S3_SECRET_KEY: process.env.S3_SECRET_KEY ?? 'impactc_minio_change_me' },
     },
     {
       command: 'npm run dev -- --hostname 127.0.0.1 --port 3000',
