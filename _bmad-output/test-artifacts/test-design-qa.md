@@ -121,3 +121,4 @@ Les specs Playwright et Jest emploient `@p0`, `@p1`, `@p2` et le domaine, par ex
 | Chat sécurisé | Réussi | Envoi autorisé, persistance chiffrée vérifiée en base et blocage d’un numéro de téléphone avec réponse `blocked: true`. |
 
 Les scénarios ont été exercés contre les services locaux NestJS, PostgreSQL et Redis. Les scripts d’onboarding et de match sont versionnés sous `backend-service/test/` ; les scénarios Journey et chat doivent encore être consolidés sous forme de scripts déterministes dans la prochaine itération.
+| Audit et témoignages | Réussi | Création de témoignage brouillon, invisibilité publique avant approbation, publication après approbation et consultation Administrateur d’une violation anti-contact auditée. |
