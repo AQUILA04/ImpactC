@@ -11,8 +11,12 @@ export class ChatService {
   async send(userId: string, journeyId: string, content: string) {
     const membership = await this.memberJourney(userId, journeyId);
     if (this.containsContact(content)) {
-      await this.audit.record(userId, 'ANTI_CONTACT_VIOLATION', 'Journey', journeyId, { pattern: 'contact-sharing' });
-      await this.prisma.notification.create({ data: { userId: membership.assignedLeaderId, journeyId, type: NotificationType.CONTACT_VIOLATION, title: 'Blocked contact sharing attempt', body: 'A chat message was blocked by the anti-contact policy.', metadata: { senderProfileId: membership.senderProfileId } } });
+      const encrypted = this.encrypt(content.trim());
+      await this.prisma.$transaction([
+        this.prisma.message.create({ data: { journeyId, senderId: membership.senderProfileId, encryptedContent: encrypted.ciphertext, iv: encrypted.iv, authTag: encrypted.authTag, isFlagged: true } }),
+        this.prisma.notification.create({ data: { userId: membership.assignedLeaderId, journeyId, type: NotificationType.CONTACT_VIOLATION, title: 'Blocked contact sharing attempt', body: 'A chat message was blocked by the anti-contact policy.', metadata: { senderProfileId: membership.senderProfileId } } }),
+        this.prisma.auditLog.create({ data: { actorId: userId, action: 'ANTI_CONTACT_VIOLATION', targetType: 'Journey', targetId: journeyId, metadata: { pattern: 'contact-sharing' } } }),
+      ]);
       return { blocked: true, reason: 'Contact details cannot be shared in the supervised chat.' };
     }
     const encrypted = this.encrypt(content.trim());
