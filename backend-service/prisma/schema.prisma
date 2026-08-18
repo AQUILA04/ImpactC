@@ -92,20 +92,21 @@ enum GdprRequestStatus {
 }
 
 model User {
-  id                   String        @id @default(uuid()) @db.Uuid
-  email                String        @unique @db.VarChar(254)
-  passwordHash         String        @map("password_hash") @db.VarChar(255)
-  role                 UserRole      @default(CELIBATAIRE)
-  isActive             Boolean       @default(true) @map("is_active")
-  createdAt            DateTime      @default(now()) @map("created_at")
-  updatedAt            DateTime      @updatedAt @map("updated_at")
+  id                   String              @id @default(uuid()) @db.Uuid
+  email                String              @unique @db.VarChar(254)
+  passwordHash         String              @map("password_hash") @db.VarChar(255)
+  keycloakSubject      String?             @unique @map("keycloak_subject") @db.Uuid
+  role                 UserRole            @default(CELIBATAIRE)
+  isActive             Boolean             @default(true) @map("is_active")
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
   profile              CelibataireProfile?
   refreshTokens        RefreshToken[]
-  assignedJourneys     Journey[]     @relation("assigned_responsable")
-  auditLogs            AuditLog[]    @relation("audit_actor")
+  assignedJourneys     Journey[]           @relation("assigned_responsable")
+  auditLogs            AuditLog[]          @relation("audit_actor")
   notifications        Notification[]
-  testimonials         Testimonial[] @relation("testimonial_author")
-  approvedTestimonials Testimonial[] @relation("testimonial_approver")
+  testimonials         Testimonial[]       @relation("testimonial_author")
+  approvedTestimonials Testimonial[]       @relation("testimonial_approver")
   gdprRequests         GdprRequest[]
 
   @@map("users")
@@ -125,45 +126,45 @@ model RefreshToken {
 }
 
 model CelibataireProfile {
-  id                    String        @id @default(uuid()) @db.Uuid
-  userId                String        @unique @map("user_id") @db.Uuid
-  firstName             String        @map("first_name") @db.VarChar(80)
-  lastName              String        @map("last_name") @db.VarChar(80)
-  gender                Gender
-  dateOfBirth           DateTime      @map("date_of_birth") @db.Date
-  nationality           String?       @db.VarChar(80)
-  city                  String        @db.VarChar(120)
-  churchDepartment      String        @map("church_department") @db.VarChar(120)
-  departmentLeader      String        @map("department_leader") @db.VarChar(120)
-  churchTenureMonths    Int?          @map("church_tenure_months")
-  profession            String        @db.VarChar(120)
-  activitySector        String?       @map("activity_sector") @db.VarChar(120)
-  financialRange        String        @map("financial_range") @db.VarChar(80)
-  profilePhotoUrl       String        @map("profile_photo_url") @db.VarChar(500)
-  profilePhotoThumbUrl  String?       @map("profile_photo_thumb_url") @db.VarChar(500)
-  tagline               String        @db.VarChar(180)
-  personalDescription   String?       @map("personal_description") @db.Text
-  searchMinAge          Int           @map("search_min_age")
-  searchMaxAge          Int           @map("search_max_age")
-  spiritualCriteria     String?       @map("spiritual_criteria") @db.Text
-  professionalCriteria  String?       @map("professional_criteria") @db.Text
-  consentAcceptedAt     DateTime      @map("consent_accepted_at")
-  status                ProfileStatus @default(PENDING_VALIDATION)
-  moderationNote        String?       @map("moderation_note") @db.Text
-  moderatedAt           DateTime?     @map("moderated_at")
-  moderatedById         String?       @map("moderated_by_id") @db.Uuid
-  activeJourneyId       String?       @map("active_journey_id") @db.Uuid
-  createdAt             DateTime      @default(now()) @map("created_at")
-  updatedAt             DateTime      @updatedAt @map("updated_at")
-  user                  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  availabilitySlots     AvailabilitySlot[]
-  interestsSent         Interest[]    @relation("interest_sender")
-  interestsReceived     Interest[]    @relation("interest_receiver")
-  matchesAsOne          Match[]       @relation("match_partner_one")
-  matchesAsTwo          Match[]       @relation("match_partner_two")
-  journeysAsOne         Journey[]     @relation("journey_partner_one")
-  journeysAsTwo         Journey[]     @relation("journey_partner_two")
-  sentMessages          Message[]     @relation("message_sender")
+  id                   String             @id @default(uuid()) @db.Uuid
+  userId               String             @unique @map("user_id") @db.Uuid
+  firstName            String             @map("first_name") @db.VarChar(80)
+  lastName             String             @map("last_name") @db.VarChar(80)
+  gender               Gender
+  dateOfBirth          DateTime           @map("date_of_birth") @db.Date
+  nationality          String?            @db.VarChar(80)
+  city                 String             @db.VarChar(120)
+  churchDepartment     String             @map("church_department") @db.VarChar(120)
+  departmentLeader     String             @map("department_leader") @db.VarChar(120)
+  churchTenureMonths   Int?               @map("church_tenure_months")
+  profession           String             @db.VarChar(120)
+  activitySector       String?            @map("activity_sector") @db.VarChar(120)
+  financialRange       String             @map("financial_range") @db.VarChar(80)
+  profilePhotoUrl      String             @map("profile_photo_url") @db.VarChar(500)
+  profilePhotoThumbUrl String?            @map("profile_photo_thumb_url") @db.VarChar(500)
+  tagline              String             @db.VarChar(180)
+  personalDescription  String?            @map("personal_description") @db.Text
+  searchMinAge         Int                @map("search_min_age")
+  searchMaxAge         Int                @map("search_max_age")
+  spiritualCriteria    String?            @map("spiritual_criteria") @db.Text
+  professionalCriteria String?            @map("professional_criteria") @db.Text
+  consentAcceptedAt    DateTime           @map("consent_accepted_at")
+  status               ProfileStatus      @default(PENDING_VALIDATION)
+  moderationNote       String?            @map("moderation_note") @db.Text
+  moderatedAt          DateTime?          @map("moderated_at")
+  moderatedById        String?            @map("moderated_by_id") @db.Uuid
+  activeJourneyId      String?            @map("active_journey_id") @db.Uuid
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  availabilitySlots    AvailabilitySlot[]
+  interestsSent        Interest[]         @relation("interest_sender")
+  interestsReceived    Interest[]         @relation("interest_receiver")
+  matchesAsOne         Match[]            @relation("match_partner_one")
+  matchesAsTwo         Match[]            @relation("match_partner_two")
+  journeysAsOne        Journey[]          @relation("journey_partner_one")
+  journeysAsTwo        Journey[]          @relation("journey_partner_two")
+  sentMessages         Message[]          @relation("message_sender")
 
   @@index([status, gender], map: "idx_profiles_status_gender")
   @@index([city], map: "idx_profiles_city")
@@ -292,14 +293,14 @@ model Notification {
 }
 
 model AuditLog {
-  id         String    @id @default(uuid()) @db.Uuid
-  actorId    String?   @map("actor_id") @db.Uuid
-  action     String    @db.VarChar(100)
-  targetType String    @map("target_type") @db.VarChar(100)
-  targetId   String?   @map("target_id") @db.Uuid
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String   @db.VarChar(100)
+  targetType String   @map("target_type") @db.VarChar(100)
+  targetId   String?  @map("target_id") @db.Uuid
   metadata   Json?
-  createdAt  DateTime  @default(now()) @map("created_at")
-  actor      User?     @relation("audit_actor", fields: [actorId], references: [id], onDelete: SetNull)
+  createdAt  DateTime @default(now()) @map("created_at")
+  actor      User?    @relation("audit_actor", fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([action, createdAt], map: "idx_audit_logs_action_created_at")
   @@index([targetType, targetId], map: "idx_audit_logs_target")
