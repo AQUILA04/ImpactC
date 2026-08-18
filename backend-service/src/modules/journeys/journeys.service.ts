@@ -19,7 +19,8 @@ export class JourneysService {
     const journey = await this.prisma.$transaction(async (tx) => {
       const created = await tx.journey.create({ data: { matchId, partnerOneId: match.partnerOneId, partnerTwoId: match.partnerTwoId, assignedLeaderId: actorId } });
       await tx.appointment.create({ data: { journeyId: created.id, scheduledAt: appointmentDate, location: location.trim(), notes } });
-      await tx.notification.createMany({ data: [match.partnerOneId, match.partnerTwoId].map((profileId) => ({ userId: profileId, type: NotificationType.APPOINTMENT_SCHEDULED, title: 'First appointment scheduled', body: `Your supervised appointment is scheduled for ${appointmentDate.toISOString()}.`, journeyId: created.id })) });
+      const partners = await tx.celibataireProfile.findMany({ where: { id: { in: [match.partnerOneId, match.partnerTwoId] } }, select: { userId: true } });
+      await tx.notification.createMany({ data: partners.map((partner) => ({ userId: partner.userId, type: NotificationType.APPOINTMENT_SCHEDULED, title: 'First appointment scheduled', body: `Your supervised appointment is scheduled for ${appointmentDate.toISOString()}.`, journeyId: created.id })) });
       return created;
     });
     await this.audit.record(actorId, 'FIRST_APPOINTMENT_SCHEDULED', 'Journey', journey.id, { matchId, scheduledAt });
