@@ -1,6 +1,6 @@
 # Plan de déploiement production ImpactC sur Contabo
 
-**Statut :** architecture cible validée pour les domaines et l’identité du backoffice ; les lots techniques restent à réaliser avant la mise en production.
+**Statut :** architecture cible, identité backoffice et lot P1 de durcissement livrés localement ; le provisionnement Contabo, les secrets, la livraison continue et la bascule production restent à réaliser.
 **Cible :** VPS Contabo existant, avec `optimize-common-infra` et `shared-traefik` comme socles mutualisés.  
 **Périmètre :** API NestJS, backoffice Next.js, base PostgreSQL métier, worker BullMQ, Redis partagé, MinIO partagé, notification-hub pour les communications métier transactionnelles, routage HTTPS, observabilité et livraison continue. Le client Expo reste distribué comme application mobile : il ne constitue pas un service Contabo.
 
@@ -8,19 +8,19 @@
 
 L’infrastructure commune est adaptée à ImpactC. Elle fournit déjà les deux réseaux Docker externes requis (`optimizesolux-common` pour les dépendances internes et `traefik-public` pour l’exposition HTTPS), ainsi que Redis, MinIO, Keycloak, Vault, Mailpit et l’observabilité. Les produits doivent conserver uniquement leurs artefacts applicatifs et leur base métier. [1] [2]
 
-ImpactC est toutefois **prêt pour le développement, mais pas encore déployable en production sans un lot de durcissement**. Les manques identifiés sont les images Docker applicatives, un compose de production, un mécanisme de migration `prisma migrate deploy`, la configuration Redis protégée par mot de passe, l’instrumentation OpenTelemetry, les contrôles de santé, la restriction Socket.io/CORS et les procédures de sauvegarde/restauration. L’authentification JWT interne reste la référence pour les membres ; Keycloak est retenu uniquement pour les comptes de supervision du backoffice.
+ImpactC dispose désormais du **lot P1 de durcissement validé localement** : images Docker multi-stage non privilégiées pour l’API et le backoffice, cible de migration Prisma dédiée, compose de production sans ports métier publiés, API/worker BullMQ séparés, healthchecks `live`/`ready`, Redis configurable par mot de passe/index/préfixe, CORS HTTP et Socket.io alignés, et modèle de secrets. Les étapes qui empêchent encore une mise en production sont le provisionnement des services Contabo et de Vault, le pipeline GHCR/SSH avec rollback, l’instrumentation OpenTelemetry, les sauvegardes/restaurations démontrées et la validation de préproduction. L’authentification JWT interne reste la référence pour les membres ; Keycloak est retenu uniquement pour les comptes de supervision du backoffice.
 
 | Élément ImpactC        | État observé                                           | Cible Contabo commune                          | Action de planification                                                 |
 | ---------------------- | ------------------------------------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------- |
-| API NestJS + Socket.io | Exécution Node locale, pas d’image de production       | `traefik-public` + `optimizesolux-common`      | Créer une image multi-stage et un service `impactc-api`.                |
-| Backoffice Next.js     | Exécution locale, pas d’image de production            | `traefik-public`                               | Créer une image autonome `impactc-backoffice`.                          |
+| API NestJS + Socket.io | Image Docker multi-stage non privilégiée livrée        | `traefik-public` + `optimizesolux-common`      | Publier l’image GHCR par SHA et injecter les secrets Contabo.           |
+| Backoffice Next.js     | Image Next.js standalone non privilégiée livrée        | `traefik-public`                               | Publier l’image GHCR par SHA et configurer l’URL API/OIDC au build.     |
 | Client Expo            | Client mobile externe                                  | API HTTPS publique                             | Publier une configuration de production pointant vers l’API ImpactC.    |
 | PostgreSQL métier      | Compose local uniquement                               | Conteneur produit `impactc-db`, réseau interne | Garder une base dédiée, sans port exposé sur l’hôte.                    |
-| Redis / BullMQ         | Hôte et port seulement ; aucun mot de passe ni préfixe | Redis commun authentifié                       | Ajouter `REDIS_PASSWORD`, index/base et préfixe `impactc:`.             |
+| Redis / BullMQ         | Mot de passe, index dédié et préfixe configurables     | Redis commun authentifié                       | Fournir le secret Redis et réserver l’index `6` au produit.             |
 | MinIO                  | Intégration S3 déjà livrée                             | MinIO commun `minio:9000`                      | Créer le bucket et un compte applicatif à privilèges minimaux.          |
 | Authentification       | JWT local, RBAC propre à ImpactC                       | Realm Keycloak `impactc` pour le backoffice    | Conserver JWT pour les membres et fédérer Responsable/Admin au realm.   |
 | Notifications métier   | Outbox BullMQ et client notification-hub livrés        | API notification-hub + realm de service dédié  | Fournir les secrets OAuth2, activer l’envoi et superviser les reprises. |
-| Monitoring             | Logs stdout seulement                                  | OTel, Prometheus, Loki, Grafana communs        | Ajouter OTLP au backend et un dashboard produit.                        |
+| Santé et monitoring    | `/health/live` et `/health/ready` livrés ; logs stdout | OTel, Prometheus, Loki, Grafana communs        | Ajouter OTLP, dashboard et alertes produit.                             |
 
 ## 2. Architecture cible
 
@@ -113,9 +113,9 @@ Créer les enregistrements DNS `impactc`, `impactc-api` et `impactc-admin` vers 
 
 ### Phase 2 — Durcir ImpactC pour l’environnement production
 
-Créer des Dockerfiles multi-stage reproductibles pour le backend NestJS et le backoffice Next.js ; construire le client Expo séparément avec sa variable API de production. Ajouter un endpoint `GET /health/live` sans dépendance et un endpoint `GET /health/ready` vérifiant PostgreSQL, Redis et MinIO. Ne pas employer la page Swagger comme sonde de disponibilité.
+Le lot P1 a livré des Dockerfiles multi-stage reproductibles pour le backend NestJS, une cible `migrator` Prisma et le backoffice Next.js standalone ; le client Expo reste construit séparément avec sa variable API de production. L’API expose `GET /health/live` sans dépendance et `GET /health/ready`, qui vérifie PostgreSQL, Redis et MinIO. La page Swagger n’est jamais utilisée comme sonde.
 
-Modifier le backend afin de lire et valider au démarrage les variables de production. Les changements minimaux sont : prise en charge de `REDIS_PASSWORD`, configuration d’un préfixe BullMQ `impactc:`, usage d’un index Redis réservé, restriction de l’origine Socket.io par `FRONTEND_ORIGINS`, et réglages CORS limités aux hôtes HTTPS ImpactC. Les secrets JWT membres doivent être longs, aléatoires, différents entre access/refresh et jamais inclus dans les images.
+Le backend lit désormais `REDIS_PASSWORD`, `REDIS_DB` et `BULLMQ_PREFIX=impactc`, avec un index Redis réservé ; le CORS HTTP et la poignée de main Socket.io utilisent la même liste `FRONTEND_ORIGINS`. Les secrets JWT membres restent longs, aléatoires, distincts entre access/refresh et exclus des images. En production, `S3_AUTO_CREATE_BUCKET=false` impose le provisionnement préalable du bucket MinIO par l’infrastructure.
 
 Intégrer Keycloak **uniquement au backoffice** : créer le realm `impactc` dans `optimize-common-infra`, le client OIDC `impactc-backoffice` avec redirections limitées à `https://impactc-admin.optimizesolux.com/*`, les rôles realm `RESPONSABLE` et `ADMIN`, ainsi que les premiers comptes de supervision. Le backoffice utilisera Authorization Code avec PKCE vers `https://auth.optimizesolux.com/realms/impactc`; l’API validera les access tokens OIDC uniquement sur les routes de supervision et mappera les rôles Keycloak vers son RBAC existant. Les routes membres et le client Expo restent sur les JWT ImpactC.
 
@@ -125,11 +125,11 @@ Adapter le service média à MinIO commun : `S3_ENDPOINT=http://minio:9000`, buc
 
 Configurer notification-hub comme dépendance métier externe, sans SMTP direct dans ImpactC : `NOTIFICATION_HUB_ENABLED=true`, URL de l’API, tenant et application `impactc`, adresse émettrice validée, délai de requête et identifiants OAuth2 `impactc-notification-sender`. Le compte de service vit dans le realm `notification-hub`, porte l’audience `notification-hub-api`, le rôle minimal `notification-sender` et le claim `tenant_id=impactc`. Il est strictement distinct du realm `impactc` utilisé par Keycloak pour le backoffice. Vérifier les notifications de profil, rendez-vous et jalons, l’idempotence et la reprise après indisponibilité ; aucune donnée de conversation, coordonnée, donnée de santé ou identité d’un tiers ne doit quitter ImpactC.
 
-Séparer le worker du serveur API. Le scheduler BullMQ actuel est idempotent grâce à `upsertJobScheduler`, mais héberger processeur et API dans chaque réplique compliquerait l’exploitation. Le conteneur `impactc-worker` prendra le processeur des échéances ; l’API n’exécutera que l’interface HTTP/WebSocket.
+La séparation worker/API est livrée : `impactc-worker` démarre le point d’entrée NestJS sans HTTP et porte seul le scheduler/processeur d’échéance ainsi que le processeur de l’outbox notification-hub ; `impactc-api` n’exécute que l’interface HTTP/WebSocket. Le scheduler BullMQ reste idempotent grâce à `upsertJobScheduler`. Avant un scale-out de l’API, ajouter l’adaptateur Socket.io Redis et une stratégie cohérente de diffusion entre répliques.
 
 Enfin, intégrer l’OpenTelemetry Node SDK au backend avec `OTEL_SERVICE_NAME=impactc-api`, `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318`, le protocole HTTP/protobuf et les attributs de service communs. L’infrastructure fournit déjà CPU/RAM et logs de conteneurs ; les métriques métier, erreurs et traces applicatives doivent être explicitement émises par ImpactC. [6]
 
-**Critère de sortie :** images prod locales construites, migrations non destructives testées sur une copie, smoke tests conteneurisés réussis et aucune dépendance locale restée dans le compose produit.
+**Critère de sortie atteint localement :** images prod API, migrator et backoffice construites, migration Prisma non destructive validée sur la base E2E, API readiness saine, worker séparé démarré et aucun port applicatif direct déclaré dans le compose produit. La validation sur le VPS et les images GHCR reste P2–P3.
 
 ### Phase 3 — Créer le projet Compose ImpactC sur Contabo
 
@@ -192,14 +192,14 @@ Après acceptation, répéter exactement la même release en production. Les con
 
 ## 6. Séquence recommandée
 
-| Priorité | Lot                                                                 | Dépendance                                  | Résultat mesurable                                                                 |
-| -------: | ------------------------------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------- |
-|       P0 | Realm, thème Keycloak backoffice, domaines et sauvegardes           | Parties prenantes produit et infrastructure | Realm/client OIDC/thème/SMTP configurés, DNS déclaré, aucun choix ambigu bloquant. |
-|       P1 | Dockerfiles, compose ImpactC, configuration Redis/MinIO/CORS/health | P0                                          | Produit conteneurisé et exécutable hors environnement local.                       |
-|       P2 | Base, bucket MinIO, secrets Vault, migration `deploy`               | P1 + socle Contabo                          | Services internes fonctionnels sans secrets root.                                  |
-|       P3 | CI GHCR, CD SSH, rollback et sauvegardes                            | P1–P2                                       | Déploiement préprod par SHA et restauration testée.                                |
-|       P4 | OTel, dashboard ImpactC, scénarios E2E préprod                      | P3                                          | Observabilité et parcours métier validés sur la topologie cible.                   |
-|       P5 | Bascule production contrôlée                                        | P4                                          | Release active, smoke tests, monitoring et plan de rollback validés.               |
+| Priorité | Lot                                                                 | Dépendance                                  | Résultat mesurable                                                                           |
+| -------: | ------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+|       P0 | Realm, thème Keycloak backoffice, domaines et sauvegardes           | Parties prenantes produit et infrastructure | Realm/client OIDC/thème/SMTP configurés, DNS déclaré, aucun choix ambigu bloquant.           |
+|       P1 | Dockerfiles, compose ImpactC, configuration Redis/MinIO/CORS/health | P0                                          | **Livré localement :** produit conteneurisé, API/worker séparés et E2E/healthchecks validés. |
+|       P2 | Base, bucket MinIO, secrets Vault, migration `deploy`               | P1 + socle Contabo                          | Services internes fonctionnels sans secrets root.                                            |
+|       P3 | CI GHCR, CD SSH, rollback et sauvegardes                            | P1–P2                                       | Déploiement préprod par SHA et restauration testée.                                          |
+|       P4 | OTel, dashboard ImpactC, scénarios E2E préprod                      | P3                                          | Observabilité et parcours métier validés sur la topologie cible.                             |
+|       P5 | Bascule production contrôlée                                        | P4                                          | Release active, smoke tests, monitoring et plan de rollback validés.                         |
 
 ## 7. Informations restant à confirmer
 

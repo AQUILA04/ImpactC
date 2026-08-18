@@ -5,6 +5,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { JwtModule } from '@nestjs/jwt';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { HealthController } from './health.controller';
 import { JwtAuthGuard } from './common/auth.guard';
 import { KeycloakBackofficeGuard } from './common/keycloak-backoffice.guard';
 import { NotificationHubService } from './common/notification-hub.service';
@@ -14,7 +15,13 @@ import {
   ResponseInterceptor,
   RolesGuard,
 } from './common/http';
+import { HealthService } from './common/services/health.service';
+import { runsBackgroundWorkers } from './common/services/process-role';
 import { PrismaService } from './common/services/prisma.service';
+import {
+  bullmqConnectionOptions,
+  bullmqPrefix,
+} from './common/services/redis.config';
 import { AuthController } from './modules/auth/auth.controller';
 import { AuthService } from './modules/auth/auth.service';
 import { ChatController, ChatGateway } from './modules/chat/chat.gateway';
@@ -40,14 +47,20 @@ import { ProfileMediaStorage } from './modules/profiles/profile-media.storage';
 import { ProfilesController } from './modules/profiles/profiles.controller';
 import { ProfilesService } from './modules/profiles/profiles.service';
 
+const backgroundWorkerProviders = runsBackgroundWorkers()
+  ? [
+      JourneyExpirationScheduler,
+      JourneyExpirationProcessor,
+      NotificationHubOutboxProcessor,
+    ]
+  : [];
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     BullModule.forRoot({
-      connection: {
-        host: process.env.REDIS_HOST ?? '127.0.0.1',
-        port: Number(process.env.REDIS_PORT ?? 6379),
-      },
+      connection: bullmqConnectionOptions(),
+      prefix: bullmqPrefix(),
     }),
     BullModule.registerQueue({ name: JOURNEY_EXPIRATION_QUEUE }),
     BullModule.registerQueue({ name: NOTIFICATION_HUB_OUTBOX_QUEUE }),
@@ -59,6 +72,7 @@ import { ProfilesService } from './modules/profiles/profiles.service';
   ],
   controllers: [
     AppController,
+    HealthController,
     AuthController,
     ProfilesController,
     ProfileMediaController,
@@ -70,20 +84,19 @@ import { ProfilesService } from './modules/profiles/profiles.service';
   providers: [
     AppService,
     PrismaService,
+    HealthService,
     AuditService,
     NotificationHubService,
     NotificationHubOutboxService,
-    NotificationHubOutboxProcessor,
     ImpactcBusinessNotificationsService,
     AuthService,
     ProfilesService,
     ProfileMediaStorage,
     InterestsService,
     JourneysService,
-    JourneyExpirationScheduler,
-    JourneyExpirationProcessor,
     ChatService,
     ChatGateway,
+    ...backgroundWorkerProviders,
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
     JwtAuthGuard,

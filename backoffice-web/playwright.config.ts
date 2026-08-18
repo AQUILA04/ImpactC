@@ -45,6 +45,7 @@ export default defineConfig({
         S3_BUCKET: process.env.S3_BUCKET ?? "impactc-media-e2e",
         S3_ACCESS_KEY: process.env.S3_ACCESS_KEY ?? "impactc_minio",
         S3_SECRET_KEY: process.env.S3_SECRET_KEY ?? "impactc_minio_change_me",
+        S3_AUTO_CREATE_BUCKET: "true",
       },
     },
     {

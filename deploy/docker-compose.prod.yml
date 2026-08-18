@@ -1,0 +1,161 @@
+name: impactc-prod
+
+x-api-environment: &api-environment
+  NODE_ENV: production
+  DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+  REDIS_HOST: ${REDIS_HOST:?REDIS_HOST is required}
+  REDIS_PORT: ${REDIS_PORT:-6379}
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+  REDIS_DB: ${REDIS_DB:-6}
+  BULLMQ_PREFIX: impactc
+  S3_ENDPOINT: ${S3_ENDPOINT:?S3_ENDPOINT is required}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_BUCKET: ${S3_BUCKET:-impactc-media}
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
+  S3_AUTO_CREATE_BUCKET: "false"
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET is required}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}
+  FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:?FRONTEND_ORIGINS is required}
+  KEYCLOAK_BACKOFFICE_ENABLED: "true"
+  KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:?KEYCLOAK_ISSUER is required}
+  KEYCLOAK_BACKOFFICE_CLIENT_ID: ${KEYCLOAK_BACKOFFICE_CLIENT_ID:-impactc-backoffice}
+  NOTIFICATION_HUB_ENABLED: "true"
+  NOTIFICATION_HUB_BASE_URL: ${NOTIFICATION_HUB_BASE_URL:?NOTIFICATION_HUB_BASE_URL is required}
+  NOTIFICATION_HUB_TENANT_ID: impactc
+  NOTIFICATION_HUB_APP_ID: impactc
+  NOTIFICATION_HUB_FROM: ${NOTIFICATION_HUB_FROM:?NOTIFICATION_HUB_FROM is required}
+  NOTIFICATION_HUB_TIMEOUT_MS: ${NOTIFICATION_HUB_TIMEOUT_MS:-10000}
+  NOTIFICATION_HUB_TOKEN_REFRESH_SKEW_SECONDS: ${NOTIFICATION_HUB_TOKEN_REFRESH_SKEW_SECONDS:-60}
+  NOTIFICATION_HUB_OAUTH_TOKEN_URL: ${NOTIFICATION_HUB_OAUTH_TOKEN_URL:?NOTIFICATION_HUB_OAUTH_TOKEN_URL is required}
+  NOTIFICATION_HUB_OAUTH_CLIENT_ID: impactc-notification-sender
+  NOTIFICATION_HUB_OAUTH_CLIENT_SECRET: ${NOTIFICATION_HUB_OAUTH_CLIENT_SECRET:?NOTIFICATION_HUB_OAUTH_CLIENT_SECRET is required}
+  JOURNEY_EXPIRATION_CRON: ${JOURNEY_EXPIRATION_CRON:-0 6 * * *}
+
+services:
+  impactc-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-impactc}
+      POSTGRES_USER: ${POSTGRES_USER:-impactc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - impactc-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      optimizesolux-common:
+        aliases:
+          - impactc-db
+
+  impactc-migrate:
+    image: ${IMPACTC_MIGRATOR_IMAGE:?IMPACTC_MIGRATOR_IMAGE is required}
+    profiles: ["migrate"]
+    restart: "no"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+    depends_on:
+      impactc-db:
+        condition: service_healthy
+    networks:
+      - optimizesolux-common
+
+  impactc-api:
+    image: ${IMPACTC_API_IMAGE:?IMPACTC_API_IMAGE is required}
+    restart: unless-stopped
+    environment:
+      <<: *api-environment
+      IMPACTC_PROCESS_ROLE: api
+      PORT: "3001"
+    depends_on:
+      impactc-db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3001/health/ready').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - optimizesolux-common
+      - traefik-public
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.http.routers.impactc-api.rule=Host(`${IMPACTC_API_HOST:-impactc-api.optimizesolux.com}`)
+      - traefik.http.routers.impactc-api.entrypoints=websecure
+      - traefik.http.routers.impactc-api.tls=true
+      - traefik.http.services.impactc-api.loadbalancer.server.port=3001
+
+  impactc-worker:
+    image: ${IMPACTC_API_IMAGE:?IMPACTC_API_IMAGE is required}
+    restart: unless-stopped
+    environment:
+      <<: *api-environment
+      IMPACTC_PROCESS_ROLE: worker
+    depends_on:
+      impactc-db:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - optimizesolux-common
+
+  impactc-backoffice:
+    image: ${IMPACTC_BACKOFFICE_IMAGE:?IMPACTC_BACKOFFICE_IMAGE is required}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    networks:
+      - traefik-public
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.http.routers.impactc-backoffice.rule=Host(`${IMPACTC_BACKOFFICE_HOST:-impactc-admin.optimizesolux.com}`)
+      - traefik.http.routers.impactc-backoffice.entrypoints=websecure
+      - traefik.http.routers.impactc-backoffice.tls=true
+      - traefik.http.services.impactc-backoffice.loadbalancer.server.port=3000
+
+volumes:
+  impactc-postgres-data:
+
+networks:
+  optimizesolux-common:
+    external: true
+    name: optimizesolux-common
+  traefik-public:
+    external: true
+    name: traefik-public
