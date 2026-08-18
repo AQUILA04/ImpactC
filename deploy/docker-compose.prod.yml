@@ -32,6 +32,9 @@ x-api-environment: &api-environment
   NOTIFICATION_HUB_OAUTH_CLIENT_ID: impactc-notification-sender
   NOTIFICATION_HUB_OAUTH_CLIENT_SECRET: ${NOTIFICATION_HUB_OAUTH_CLIENT_SECRET:?NOTIFICATION_HUB_OAUTH_CLIENT_SECRET is required}
   JOURNEY_EXPIRATION_CRON: ${JOURNEY_EXPIRATION_CRON:-0 6 * * *}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+  OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}
+  OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-service.namespace=optimizesolux,deployment.environment=prod}
 
 services:
   impactc-db:
@@ -75,6 +78,7 @@ services:
       <<: *api-environment
       IMPACTC_PROCESS_ROLE: api
       PORT: "3001"
+      OTEL_SERVICE_NAME: impactc-api
     depends_on:
       impactc-db:
         condition: service_healthy
@@ -111,6 +115,7 @@ services:
     environment:
       <<: *api-environment
       IMPACTC_PROCESS_ROLE: worker
+      OTEL_SERVICE_NAME: impactc-worker
     depends_on:
       impactc-db:
         condition: service_healthy

@@ -4,11 +4,11 @@ set -eu
 case "${IMPACTC_PROCESS_ROLE:-api}" in
   api)
     export IMPACTC_PROCESS_ROLE=api
-    exec node dist/src/main
+    exec node --require ./dist/src/telemetry.js dist/src/main.js
     ;;
   worker)
     export IMPACTC_PROCESS_ROLE=worker
-    exec node dist/src/worker
+    exec node --require ./dist/src/telemetry.js dist/src/worker.js
     ;;
   *)
     echo "IMPACTC_PROCESS_ROLE must be api or worker" >&2
