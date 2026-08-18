@@ -1,0 +1,111 @@
+name: Quality Gate
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: impactc-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-unit:
+    name: Build and API regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend-service/package-lock.json
+            backoffice-web/package-lock.json
+            mobile-client/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend-service
+        run: npm ci
+      - name: Build backend
+        working-directory: backend-service
+        run: npm run build
+      - name: Run backend E2E smoke
+        working-directory: backend-service
+        run: npm run test:e2e -- --runInBand
+      - name: Install backoffice dependencies
+        working-directory: backoffice-web
+        run: npm ci
+      - name: Build backoffice
+        working-directory: backoffice-web
+        run: npm run build
+      - name: Install mobile dependencies
+        working-directory: mobile-client
+        run: npm ci
+      - name: Typecheck mobile
+        working-directory: mobile-client
+        run: npx tsc --noEmit
+
+  browser-e2e:
+    name: Browser regression
+    needs: build-and-unit
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_secure_pass
+          POSTGRES_DB: impactc_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d impactc_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend-service/package-lock.json
+            backoffice-web/package-lock.json
+      - name: Install PostgreSQL client for fixture time control
+        run: sudo apt-get update && sudo apt-get install --yes postgresql-client
+      - name: Install backend dependencies
+        working-directory: backend-service
+        run: npm ci
+      - name: Install backoffice dependencies
+        working-directory: backoffice-web
+        run: npm ci
+      - name: Install Chromium
+        working-directory: backoffice-web
+        run: npx playwright install --with-deps chromium
+      - name: Run P0-P2 regression suite
+        working-directory: backoffice-web
+        env:
+          E2E_DATABASE_URL: postgresql://postgres:postgres_secure_pass@127.0.0.1:5432/impactc_e2e?schema=public
+        run: npm run test:e2e
+      - name: Archive Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_attempt }}
+          path: |
+            backoffice-web/playwright-report
+            backoffice-web/test-results
+          if-no-files-found: ignore
+          retention-days: 14

@@ -8,6 +8,7 @@ import {
   Injectable,
   NestInterceptor,
   SetMetadata,
+  StreamableFile,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -37,7 +38,7 @@ export class ResponseInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const response = context.switchToHttp().getResponse<{ statusCode?: number }>();
     return next.handle().pipe(
-      map((data) => ({
+      map((data) => data instanceof StreamableFile ? data : ({
         status: 'OK',
         statusCode: response.statusCode ?? HttpStatus.OK,
         message: 'default.message.success',

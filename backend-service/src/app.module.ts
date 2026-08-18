@@ -18,6 +18,7 @@ import { JourneysController } from './modules/journeys/journeys.controller';
 import { JourneyExpirationProcessor, JourneyExpirationScheduler, JOURNEY_EXPIRATION_QUEUE } from './modules/journeys/journey-expiration.worker';
 import { JourneysService } from './modules/journeys/journeys.service';
 import { OperationsController } from './modules/operations/operations.controller';
+import { ProfileMediaController } from './modules/profiles/profile-media.controller';
 import { ProfilesController } from './modules/profiles/profiles.controller';
 import { ProfilesService } from './modules/profiles/profiles.service';
 
@@ -28,7 +29,7 @@ import { ProfilesService } from './modules/profiles/profiles.service';
     BullModule.registerQueue({ name: JOURNEY_EXPIRATION_QUEUE }),
     JwtModule.register({ global: true, secret: process.env.JWT_ACCESS_SECRET, signOptions: { expiresIn: '15m' } }),
   ],
-  controllers: [AppController, AuthController, ProfilesController, InterestsController, JourneysController, ChatController, OperationsController],
+  controllers: [AppController, AuthController, ProfilesController, ProfileMediaController, InterestsController, JourneysController, ChatController, OperationsController],
   providers: [
     AppService,
     PrismaService,

@@ -136,6 +136,7 @@ export class ProfilesService {
     if (!input.searchMinAge || !input.searchMaxAge || input.searchMinAge < 18 || input.searchMaxAge < input.searchMinAge) throw new BadRequestException('Search age range is invalid');
     const dob = new Date(input.dateOfBirth);
     if (Number.isNaN(dob.getTime()) || this.age(dob) < 18) throw new BadRequestException('You must be at least 18 years old');
+    if (/^media:\/\/profile\/[a-f0-9-]{36}\.webp$/i.test(input.profilePhotoUrl)) return;
     try {
       const url = new URL(input.profilePhotoUrl);
       const allowedHosts = (process.env.PROFILE_MEDIA_ALLOWED_HOSTS ?? 'images.unsplash.com,res.cloudinary.com').split(',').map((host) => host.trim().toLowerCase()).filter(Boolean);
