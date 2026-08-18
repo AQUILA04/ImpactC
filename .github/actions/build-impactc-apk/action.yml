@@ -1,0 +1,173 @@
+name: Build ImpactC mobile release APK
+description: Generate a signed Expo Android APK and publish its release manifest to MinIO.
+
+inputs:
+  target:
+    description: Deployment channel (test or prod)
+    required: true
+  api-url:
+    description: HTTPS API base URL injected into the Expo bundle
+    required: true
+  android-keystore-base64:
+    description: Base64-encoded release keystore
+    required: false
+    default: ""
+  android-keystore-password:
+    description: Keystore password
+    required: false
+    default: ""
+  android-key-alias:
+    description: Android signing key alias
+    required: false
+    default: ""
+  android-key-password:
+    description: Android signing key password
+    required: false
+    default: ""
+  minio-endpoint:
+    description: MinIO S3 endpoint used for release publication
+    required: true
+  minio-access-key:
+    description: MinIO access key with write access limited to the ImpactC release bucket
+    required: true
+  minio-secret-key:
+    description: MinIO secret key with write access limited to the ImpactC release bucket
+    required: true
+  minio-mobile-releases-bucket:
+    description: Private MinIO bucket for ImpactC mobile releases
+    required: false
+    default: impactc-mobile-releases
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20.19.3"
+        cache: npm
+        cache-dependency-path: mobile-client/package-lock.json
+
+    - name: Setup Java
+      uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: "17"
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v4
+
+    - name: Verify Android SDK
+      shell: bash
+      run: |
+        set -euo pipefail
+        test -n "${ANDROID_HOME:-}"
+        test -d "$ANDROID_HOME"
+        echo "ANDROID_HOME=$ANDROID_HOME"
+
+    - name: Install Expo dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd mobile-client
+        npm ci
+        npx expo-doctor || true
+
+    - name: Generate the Android project
+      shell: bash
+      env:
+        EXPO_PUBLIC_API_BASE: ${{ inputs.api-url }}
+        IMPACTC_RELEASE_CHANNEL: ${{ inputs.target }}
+      run: |
+        set -euo pipefail
+        cd mobile-client
+        CI=1 npx expo prebuild --platform android --clean
+
+    - name: Prepare Android keystore
+      shell: bash
+      env:
+        ANDROID_KEYSTORE_BASE64: ${{ inputs.android-keystore-base64 }}
+        ANDROID_KEYSTORE_PASSWORD: ${{ inputs.android-keystore-password }}
+        ANDROID_KEY_ALIAS: ${{ inputs.android-key-alias }}
+        ANDROID_KEY_PASSWORD: ${{ inputs.android-key-password }}
+        TARGET: ${{ inputs.target }}
+      run: |
+        set -euo pipefail
+        if [[ -z "$ANDROID_KEYSTORE_BASE64" ]]; then
+          if [[ "$TARGET" == "prod" ]]; then
+            echo "A signed production APK requires ANDROID_KEYSTORE_BASE64." >&2
+            exit 1
+          fi
+          echo "No keystore supplied for the test channel."
+          exit 0
+        fi
+        echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > mobile-client/android/app/impactc-release.jks
+        chmod 600 mobile-client/android/app/impactc-release.jks
+        cat > mobile-client/android/key.properties <<EOF
+        storeFile=impactc-release.jks
+        storePassword=${ANDROID_KEYSTORE_PASSWORD}
+        keyAlias=${ANDROID_KEY_ALIAS}
+        keyPassword=${ANDROID_KEY_PASSWORD}
+        EOF
+        chmod 600 mobile-client/android/key.properties
+
+    - name: Configure Android release signing
+      shell: bash
+      run: |
+        set -euo pipefail
+        chmod +x .github/scripts/configure-expo-android-signing.sh
+        .github/scripts/configure-expo-android-signing.sh mobile-client/android ${{ inputs.target == 'prod' }}
+
+    - name: Assemble Android release APK
+      shell: bash
+      env:
+        EXPO_PUBLIC_API_BASE: ${{ inputs.api-url }}
+        IMPACTC_RELEASE_CHANNEL: ${{ inputs.target }}
+      run: |
+        set -euo pipefail
+        cd mobile-client/android
+        chmod +x gradlew
+        ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+    - name: Name the release APK
+      id: apk
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+        EXPO_PUBLIC_API_BASE: ${{ inputs.api-url }}
+        IMPACTC_RELEASE_CHANNEL: ${{ inputs.target }}
+      run: |
+        set -euo pipefail
+        VERSION=$(cd mobile-client && npx expo config --json | jq -r '.expo.version')
+        if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+          echo "Invalid Expo app version: $VERSION" >&2
+          exit 1
+        fi
+        SOURCE=mobile-client/android/app/build/outputs/apk/release/app-release.apk
+        DEST=mobile-client/android/app/build/outputs/apk/release/impactc-mobile-${TARGET}-v${VERSION}.apk
+        test -s "$SOURCE"
+        mv "$SOURCE" "$DEST"
+        echo "app_version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "apk_path=$DEST" >> "$GITHUB_OUTPUT"
+
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: impactc-mobile-${{ inputs.target }}-v${{ steps.apk.outputs.app_version }}.apk
+        path: ${{ steps.apk.outputs.apk_path }}
+        retention-days: 90
+
+    - name: Publish APK to MinIO
+      shell: bash
+      env:
+        MINIO_ENDPOINT: ${{ inputs.minio-endpoint }}
+        MINIO_ACCESS_KEY: ${{ inputs.minio-access-key }}
+        MINIO_SECRET_KEY: ${{ inputs.minio-secret-key }}
+        MINIO_MOBILE_RELEASES_BUCKET: ${{ inputs.minio-mobile-releases-bucket }}
+      run: |
+        set -euo pipefail
+        chmod +x .github/scripts/publish-impactc-apk.sh
+        .github/scripts/publish-impactc-apk.sh \
+          "${{ steps.apk.outputs.apk_path }}" \
+          "${{ inputs.target }}" \
+          "${{ steps.apk.outputs.app_version }}"

@@ -1,0 +1,99 @@
+name: ImpactC Mobile APK Build
+
+on:
+  workflow_run:
+    workflows: ["Quality Gate"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Canal de publication APK
+        required: true
+        type: choice
+        default: prod
+        options: [test, prod]
+      ref:
+        description: SHA Git ayant déjà réussi Quality Gate
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  prepare:
+    if: |
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.head_branch == 'main' || startsWith(github.event.workflow_run.head_branch, 'prod/'))) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      target: ${{ steps.context.outputs.target }}
+      ref: ${{ steps.context.outputs.ref }}
+    steps:
+      - id: context
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            SHA='${{ inputs.ref }}'
+            [[ "$SHA" =~ ^[a-f0-9]{40}$ ]] || { echo "ref must be a full commit SHA" >&2; exit 1; }
+            VALIDATED=$(gh api "repos/${{ github.repository }}/actions/workflows/quality.yml/runs?head_sha=${SHA}&status=completed" --jq '[.workflow_runs[] | select(.conclusion == "success")][0].head_sha // empty')
+            [[ "$VALIDATED" == "$SHA" ]] || { echo "No successful Quality Gate run found for $SHA" >&2; exit 1; }
+            echo "target=${{ inputs.target }}" >> "$GITHUB_OUTPUT"
+            echo "ref=${SHA}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event.workflow_run.head_branch }}" == "main" ]]; then
+            echo "target=test" >> "$GITHUB_OUTPUT"
+            echo "ref=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "target=prod" >> "$GITHUB_OUTPUT"
+            echo "ref=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-test:
+    needs: prepare
+    if: needs.prepare.outputs.target == 'test'
+    name: Build TEST APK
+    runs-on: ubuntu-latest
+    environment: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+      - uses: ./.github/actions/build-impactc-apk
+        with:
+          target: test
+          api-url: ${{ secrets.TEST_IMPACTC_API_URL }}
+          android-keystore-base64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          android-keystore-password: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          android-key-alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          android-key-password: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          minio-endpoint: ${{ secrets.TEST_MINIO_ENDPOINT }}
+          minio-access-key: ${{ secrets.TEST_MINIO_RELEASES_ACCESS_KEY }}
+          minio-secret-key: ${{ secrets.TEST_MINIO_RELEASES_SECRET_KEY }}
+          minio-mobile-releases-bucket: ${{ secrets.MINIO_IMPACTC_MOBILE_RELEASES_BUCKET }}
+
+  build-prod:
+    needs: prepare
+    if: needs.prepare.outputs.target == 'prod'
+    name: Build PROD APK
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+      - uses: ./.github/actions/build-impactc-apk
+        with:
+          target: prod
+          api-url: ${{ secrets.PROD_IMPACTC_API_URL }}
+          android-keystore-base64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          android-keystore-password: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          android-key-alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          android-key-password: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          minio-endpoint: ${{ secrets.PROD_MINIO_ENDPOINT }}
+          minio-access-key: ${{ secrets.PROD_MINIO_RELEASES_ACCESS_KEY }}
+          minio-secret-key: ${{ secrets.PROD_MINIO_RELEASES_SECRET_KEY }}
+          minio-mobile-releases-bucket: ${{ secrets.MINIO_IMPACTC_MOBILE_RELEASES_BUCKET }}
