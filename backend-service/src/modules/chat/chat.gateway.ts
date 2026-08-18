@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ConnectedSocket, MessageBody, OnGatewayConnection, SubscribeMessage, WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
 import { JwtService } from '@nestjs/jwt';
 import { Server, Socket } from 'socket.io';
@@ -14,6 +14,12 @@ export class ChatController {
   @UseGuards(JwtAuthGuard)
   history(@CurrentUser() user: JwtPayload, @Param('journeyId') journeyId: string) {
     return this.chat.history(user.sub, journeyId);
+  }
+
+  @Post(':journeyId/messages')
+  @UseGuards(JwtAuthGuard)
+  send(@CurrentUser() user: JwtPayload, @Param('journeyId') journeyId: string, @Body() body: { content: string }) {
+    return this.chat.send(user.sub, journeyId, body.content ?? '');
   }
 }
 
