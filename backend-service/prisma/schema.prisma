@@ -75,6 +75,15 @@ enum NotificationType {
   @@map("notification_types")
 }
 
+enum NotificationHubOutboxStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+
+  @@map("notification_hub_outbox_statuses")
+}
+
 enum GdprRequestType {
   EXPORT
   DELETION
@@ -290,6 +299,26 @@ model Notification {
 
   @@index([userId, readAt], map: "idx_notifications_user_read")
   @@map("notifications")
+}
+
+model NotificationHubOutbox {
+  id                String                      @id @default(uuid()) @db.Uuid
+  idempotencyKey    String                      @unique @map("idempotency_key") @db.VarChar(180)
+  recipientEmail    String                      @map("recipient_email") @db.VarChar(254)
+  subject           String                      @db.VarChar(200)
+  body              String                      @db.Text
+  priority          String                      @default("NORMAL") @db.VarChar(16)
+  metadata          Json?
+  status            NotificationHubOutboxStatus @default(PENDING)
+  hubNotificationId String?                     @map("hub_notification_id") @db.Uuid
+  attempts          Int                         @default(0)
+  lastError         String?                     @map("last_error") @db.Text
+  sentAt            DateTime?                   @map("sent_at")
+  createdAt         DateTime                    @default(now()) @map("created_at")
+  updatedAt         DateTime                    @updatedAt @map("updated_at")
+
+  @@index([status, createdAt], map: "idx_notification_hub_outbox_status_created")
+  @@map("notification_hub_outbox")
 }
 
 model AuditLog {

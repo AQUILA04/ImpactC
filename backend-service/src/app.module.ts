@@ -7,6 +7,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { JwtAuthGuard } from './common/auth.guard';
 import { KeycloakBackofficeGuard } from './common/keycloak-backoffice.guard';
+import { NotificationHubService } from './common/notification-hub.service';
 import {
   AuditService,
   HttpExceptionFilter,
@@ -27,7 +28,13 @@ import {
   JOURNEY_EXPIRATION_QUEUE,
 } from './modules/journeys/journey-expiration.worker';
 import { JourneysService } from './modules/journeys/journeys.service';
+import { ImpactcBusinessNotificationsService } from './modules/operations/impactc-business-notifications.service';
 import { OperationsController } from './modules/operations/operations.controller';
+import {
+  NotificationHubOutboxProcessor,
+  NotificationHubOutboxService,
+  NOTIFICATION_HUB_OUTBOX_QUEUE,
+} from './modules/operations/notification-hub-outbox.service';
 import { ProfileMediaController } from './modules/profiles/profile-media.controller';
 import { ProfileMediaStorage } from './modules/profiles/profile-media.storage';
 import { ProfilesController } from './modules/profiles/profiles.controller';
@@ -43,6 +50,7 @@ import { ProfilesService } from './modules/profiles/profiles.service';
       },
     }),
     BullModule.registerQueue({ name: JOURNEY_EXPIRATION_QUEUE }),
+    BullModule.registerQueue({ name: NOTIFICATION_HUB_OUTBOX_QUEUE }),
     JwtModule.register({
       global: true,
       secret: process.env.JWT_ACCESS_SECRET,
@@ -63,6 +71,10 @@ import { ProfilesService } from './modules/profiles/profiles.service';
     AppService,
     PrismaService,
     AuditService,
+    NotificationHubService,
+    NotificationHubOutboxService,
+    NotificationHubOutboxProcessor,
+    ImpactcBusinessNotificationsService,
     AuthService,
     ProfilesService,
     ProfileMediaStorage,

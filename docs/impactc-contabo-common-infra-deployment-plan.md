@@ -2,7 +2,7 @@
 
 **Statut :** architecture cible validée pour les domaines et l’identité du backoffice ; les lots techniques restent à réaliser avant la mise en production.
 **Cible :** VPS Contabo existant, avec `optimize-common-infra` et `shared-traefik` comme socles mutualisés.  
-**Périmètre :** API NestJS, backoffice Next.js, base PostgreSQL métier, worker BullMQ, Redis partagé, MinIO partagé, routage HTTPS, observabilité et livraison continue. Le client Expo reste distribué comme application mobile : il ne constitue pas un service Contabo.
+**Périmètre :** API NestJS, backoffice Next.js, base PostgreSQL métier, worker BullMQ, Redis partagé, MinIO partagé, notification-hub pour les communications métier transactionnelles, routage HTTPS, observabilité et livraison continue. Le client Expo reste distribué comme application mobile : il ne constitue pas un service Contabo.
 
 ## 1. Conclusion de l’analyse
 
@@ -10,16 +10,17 @@ L’infrastructure commune est adaptée à ImpactC. Elle fournit déjà les deux
 
 ImpactC est toutefois **prêt pour le développement, mais pas encore déployable en production sans un lot de durcissement**. Les manques identifiés sont les images Docker applicatives, un compose de production, un mécanisme de migration `prisma migrate deploy`, la configuration Redis protégée par mot de passe, l’instrumentation OpenTelemetry, les contrôles de santé, la restriction Socket.io/CORS et les procédures de sauvegarde/restauration. L’authentification JWT interne reste la référence pour les membres ; Keycloak est retenu uniquement pour les comptes de supervision du backoffice.
 
-| Élément ImpactC        | État observé                                           | Cible Contabo commune                          | Action de planification                                               |
-| ---------------------- | ------------------------------------------------------ | ---------------------------------------------- | --------------------------------------------------------------------- |
-| API NestJS + Socket.io | Exécution Node locale, pas d’image de production       | `traefik-public` + `optimizesolux-common`      | Créer une image multi-stage et un service `impactc-api`.              |
-| Backoffice Next.js     | Exécution locale, pas d’image de production            | `traefik-public`                               | Créer une image autonome `impactc-backoffice`.                        |
-| Client Expo            | Client mobile externe                                  | API HTTPS publique                             | Publier une configuration de production pointant vers l’API ImpactC.  |
-| PostgreSQL métier      | Compose local uniquement                               | Conteneur produit `impactc-db`, réseau interne | Garder une base dédiée, sans port exposé sur l’hôte.                  |
-| Redis / BullMQ         | Hôte et port seulement ; aucun mot de passe ni préfixe | Redis commun authentifié                       | Ajouter `REDIS_PASSWORD`, index/base et préfixe `impactc:`.           |
-| MinIO                  | Intégration S3 déjà livrée                             | MinIO commun `minio:9000`                      | Créer le bucket et un compte applicatif à privilèges minimaux.        |
-| Authentification       | JWT local, RBAC propre à ImpactC                       | Realm Keycloak `impactc` pour le backoffice    | Conserver JWT pour les membres et fédérer Responsable/Admin au realm. |
-| Monitoring             | Logs stdout seulement                                  | OTel, Prometheus, Loki, Grafana communs        | Ajouter OTLP au backend et un dashboard produit.                      |
+| Élément ImpactC        | État observé                                           | Cible Contabo commune                          | Action de planification                                                 |
+| ---------------------- | ------------------------------------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------- |
+| API NestJS + Socket.io | Exécution Node locale, pas d’image de production       | `traefik-public` + `optimizesolux-common`      | Créer une image multi-stage et un service `impactc-api`.                |
+| Backoffice Next.js     | Exécution locale, pas d’image de production            | `traefik-public`                               | Créer une image autonome `impactc-backoffice`.                          |
+| Client Expo            | Client mobile externe                                  | API HTTPS publique                             | Publier une configuration de production pointant vers l’API ImpactC.    |
+| PostgreSQL métier      | Compose local uniquement                               | Conteneur produit `impactc-db`, réseau interne | Garder une base dédiée, sans port exposé sur l’hôte.                    |
+| Redis / BullMQ         | Hôte et port seulement ; aucun mot de passe ni préfixe | Redis commun authentifié                       | Ajouter `REDIS_PASSWORD`, index/base et préfixe `impactc:`.             |
+| MinIO                  | Intégration S3 déjà livrée                             | MinIO commun `minio:9000`                      | Créer le bucket et un compte applicatif à privilèges minimaux.          |
+| Authentification       | JWT local, RBAC propre à ImpactC                       | Realm Keycloak `impactc` pour le backoffice    | Conserver JWT pour les membres et fédérer Responsable/Admin au realm.   |
+| Notifications métier   | Outbox BullMQ et client notification-hub livrés        | API notification-hub + realm de service dédié  | Fournir les secrets OAuth2, activer l’envoi et superviser les reprises. |
+| Monitoring             | Logs stdout seulement                                  | OTel, Prometheus, Loki, Grafana communs        | Ajouter OTLP au backend et un dashboard produit.                        |
 
 ## 2. Architecture cible
 
@@ -38,8 +39,10 @@ impactc-api / impactc-worker ── optimizesolux-common ──► impactc-db:54
                                                         ► minio:9000 (bucket privé)
                                                         ► vault:8200
                                                         ► otel-collector:4318
+                                                        └─ HTTPS/OAuth2 ─► notification-hub API
 
 Navigateur backoffice ── HTTPS ──► auth.optimizesolux.com/realms/impactc (OIDC, supervision uniquement)
+impactc-api / impactc-worker ── OAuth2 Client Credentials ──► realm notification-hub (compte de service, pas de connexion utilisateur)
 impactc-web / impactc-backoffice / impactc-api ── traefik-public
 ```
 
@@ -90,7 +93,7 @@ Le realm activera `Forgot Password`, `Verify Email` et l’exécution des action
 
 ImpactC utilise BullMQ/Redis pour les jalons de parcours et Socket.io pour le chat. Une seule réplique API est acceptable pour le lancement ; le worker doit être séparé avant le scale-out. Avec plusieurs répliques API, il faudra ajouter l’adaptateur Socket.io Redis et une stratégie de session WebSocket cohérente, afin que les messages d’un Journey atteignent les clients reliés à d’autres répliques.
 
-Mailpit est un outil de capture SMTP de développement ; il ne doit pas être utilisé en production. Même si les notifications membres restent en base dans la première version, Keycloak exige déjà un fournisseur SMTP transactionnel réel pour la vérification d’e-mail, l’oubli de mot de passe et les actions obligatoires du backoffice. Ses secrets et le domaine expéditeur validé sont donc requis avant la préproduction.
+Mailpit est un outil de capture SMTP de développement ; il ne doit pas être utilisé en production. Les notifications métier ImpactC — profil approuvé ou renvoyé en révision, premier rendez-vous et jalons de parcours — sont transmises exclusivement à **notification-hub** via l’outbox persistante et idempotente. L’échec temporaire de notification-hub ne doit jamais annuler la décision métier : BullMQ rejoue l’événement avec délai exponentiel. Les e-mails d’identité Keycloak — vérification d’e-mail, oubli de mot de passe, mot de passe temporaire, MFA/TOTP et gestion de compte — restent, eux, configurés avec le fournisseur SMTP de Keycloak. Les deux chaînes d’envoi utilisent des comptes, secrets et journaux séparés.
 
 ## 4. Plan de réalisation proposé
 
@@ -120,6 +123,8 @@ Construire et packager le thème `impactc-backoffice` avec ses types `login`, `e
 
 Adapter le service média à MinIO commun : `S3_ENDPOINT=http://minio:9000`, bucket privé `impactc-media`, identifiant MinIO applicatif dédié, région `us-east-1`. Le bucket et sa politique doivent être provisionnés par un job d’infrastructure avant le démarrage applicatif. L’API ne doit pas utiliser le compte root MinIO et le compte ImpactC ne doit avoir accès qu’à son bucket et aux opérations objet nécessaires.
 
+Configurer notification-hub comme dépendance métier externe, sans SMTP direct dans ImpactC : `NOTIFICATION_HUB_ENABLED=true`, URL de l’API, tenant et application `impactc`, adresse émettrice validée, délai de requête et identifiants OAuth2 `impactc-notification-sender`. Le compte de service vit dans le realm `notification-hub`, porte l’audience `notification-hub-api`, le rôle minimal `notification-sender` et le claim `tenant_id=impactc`. Il est strictement distinct du realm `impactc` utilisé par Keycloak pour le backoffice. Vérifier les notifications de profil, rendez-vous et jalons, l’idempotence et la reprise après indisponibilité ; aucune donnée de conversation, coordonnée, donnée de santé ou identité d’un tiers ne doit quitter ImpactC.
+
 Séparer le worker du serveur API. Le scheduler BullMQ actuel est idempotent grâce à `upsertJobScheduler`, mais héberger processeur et API dans chaque réplique compliquerait l’exploitation. Le conteneur `impactc-worker` prendra le processeur des échéances ; l’API n’exécutera que l’interface HTTP/WebSocket.
 
 Enfin, intégrer l’OpenTelemetry Node SDK au backend avec `OTEL_SERVICE_NAME=impactc-api`, `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318`, le protocole HTTP/protobuf et les attributs de service communs. L’infrastructure fournit déjà CPU/RAM et logs de conteneurs ; les métriques métier, erreurs et traces applicatives doivent être explicitement émises par ImpactC. [6]
@@ -145,15 +150,16 @@ secret/data/optimizesolux/impactc/db
 secret/data/optimizesolux/impactc/auth
 secret/data/optimizesolux/impactc/redis
 secret/data/optimizesolux/impactc/s3
-secret/data/optimizesolux/impactc/oidc     # client OIDC backoffice Keycloak
-secret/data/optimizesolux/impactc/smtp     # SMTP Keycloak : réinitialisation, vérification et actions requises
+secret/data/optimizesolux/impactc/oidc              # client OIDC backoffice Keycloak
+secret/data/optimizesolux/impactc/notification-hub  # OAuth2 Client Credentials du service impactc-notification-sender
+secret/data/optimizesolux/impactc/smtp              # SMTP Keycloak : réinitialisation, vérification et actions requises
 ```
 
 Créer un rôle AppRole ImpactC à lecture minimale, puis fournir `role_id` et `secret_id` uniquement au processus de déploiement ou à un Vault Agent. [5] Pour la première version, les secrets peuvent être matérialisés dans le `.env` produit avec permissions strictes, mais la cible doit être une injection via Vault Agent afin de ne pas dupliquer durablement les secrets entre CI et serveur.
 
 Exécuter `prisma migrate deploy`, jamais `prisma migrate dev`, avant l’activation de la nouvelle image. Ne lancer le seed de comptes privilégiés qu’avec une procédure explicite et idempotente, sans réinitialiser les données réelles.
 
-**Critère de sortie :** migration appliquée, accès MinIO testé avec l’identité dédiée, Redis authentifié, secrets non présents dans Git ni dans les logs CI.
+**Critère de sortie :** migration appliquée, accès MinIO testé avec l’identité dédiée, Redis authentifié, test d’envoi notification-hub avec un compte de préproduction, secrets non présents dans Git ni dans les logs CI.
 
 ### Phase 5 — Mettre en place la livraison continue et le rollback
 
@@ -167,21 +173,22 @@ Le déploiement procédera dans l’ordre suivant : téléchargement des images,
 
 ### Phase 6 — Validation préproduction puis bascule production
 
-Créer d’abord une stack de préproduction avec des hôtes distincts, des secrets différents et des données anonymisées. Tester : inscription, modération, découverte, upload original/miniature via MinIO commun, création Journey, réception Socket.io, worker d’échéance, contrôle RBAC, CORS depuis les deux frontends, redémarrage de conteneur, restore PostgreSQL et accès Grafana/Loki. Pour Keycloak, tester les écrans de connexion, mot de passe oublié, e-mail de réinitialisation, lien expiré ou réutilisé, mot de passe imposé, vérification e-mail, configuration TOTP, erreur MFA, déconnexion, messages français et parcours clavier.
+Créer d’abord une stack de préproduction avec des hôtes distincts, des secrets différents et des données anonymisées. Tester : inscription, modération, découverte, upload original/miniature via MinIO commun, création Journey, réception Socket.io, worker d’échéance, contrôle RBAC, CORS depuis les deux frontends, redémarrage de conteneur, restore PostgreSQL et accès Grafana/Loki. Valider notification-hub sur les quatre événements externalisés (profil approuvé, profil renvoyé en révision, premier rendez-vous et jalon de parcours), la déduplication par clé d’idempotence et la reprise après indisponibilité sans retour arrière métier. Pour Keycloak, tester les écrans de connexion, mot de passe oublié, e-mail de réinitialisation, lien expiré ou réutilisé, mot de passe imposé, vérification e-mail, configuration TOTP, erreur MFA, déconnexion, messages français et parcours clavier.
 
 Après acceptation, répéter exactement la même release en production. Les contrôles de sortie sont le healthcheck API, le test d’un login OIDC `RESPONSABLE` puis `ADMIN` dans le backoffice, le refus d’un token membre sur les routes de supervision, le test upload/lecture de miniature, les métriques OTel visibles, l’absence d’erreurs dans Loki et la présence d’une sauvegarde exploitable.
 
 ## 5. Sauvegarde, sécurité et exploitation
 
-| Domaine            | Exigence de production                                             | Mise en œuvre à planifier                                                                                                                                                                            |
-| ------------------ | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PostgreSQL ImpactC | Restauration documentée et testée, pas seulement un volume Docker. | Dump chiffré quotidien + conservation définie + copie hors VPS ; test de restauration mensuel.                                                                                                       |
-| Médias MinIO       | Les photos sont des données personnelles.                          | Bucket privé, compte dédié, sauvegarde/versioning ou réplication hors VPS, politique de suppression alignée aux demandes RGPD.                                                                       |
-| Secrets            | Pas de secret Git, image ou log.                                   | Vault/AppRole, GitHub environments, `.env` serveur en `0600` seulement si transition.                                                                                                                |
-| Réseau             | Réduire les ports de l’hôte.                                       | Seuls 80/443 publics ; PostgreSQL, Redis, MinIO et Vault accessibles via réseaux Docker selon besoin.                                                                                                |
-| Identité           | Réduction du risque de prise de compte.                            | Realm Keycloak `impactc`, thème `impactc-backoffice` Login/Email/Account, Authorization Code + PKCE, MFA obligatoire, mapping RBAC vérifié, SMTP transactionnel et rotation séparée des JWT membres. |
-| Journaux           | Ne pas exposer de données sensibles.                               | Logs structurés stdout, redaction de jetons/médias/coordonnées ; rétention Loki définie.                                                                                                             |
-| Disponibilité      | Éviter les faux déploiements sains.                                | Healthchecks readiness, restart `unless-stopped`, alertes à définir car Alertmanager n’est pas encore inclus dans common-infra. [6]                                                                  |
+| Domaine              | Exigence de production                                             | Mise en œuvre à planifier                                                                                                                                                                                     |
+| -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PostgreSQL ImpactC   | Restauration documentée et testée, pas seulement un volume Docker. | Dump chiffré quotidien + conservation définie + copie hors VPS ; test de restauration mensuel.                                                                                                                |
+| Médias MinIO         | Les photos sont des données personnelles.                          | Bucket privé, compte dédié, sauvegarde/versioning ou réplication hors VPS, politique de suppression alignée aux demandes RGPD.                                                                                |
+| Secrets              | Pas de secret Git, image ou log.                                   | Vault/AppRole, GitHub environments, `.env` serveur en `0600` seulement si transition.                                                                                                                         |
+| Réseau               | Réduire les ports de l’hôte.                                       | Seuls 80/443 publics ; PostgreSQL, Redis, MinIO et Vault accessibles via réseaux Docker selon besoin.                                                                                                         |
+| Identité             | Réduction du risque de prise de compte.                            | Realm Keycloak `impactc`, thème `impactc-backoffice` Login/Email/Account, Authorization Code + PKCE, MFA obligatoire, mapping RBAC vérifié, SMTP Keycloak transactionnel et rotation séparée des JWT membres. |
+| Notifications métier | Livraison asynchrone sans bloquer une décision métier.             | notification-hub avec OAuth2 Client Credentials, tenant `impactc`, outbox persistante, clés d’idempotence, reprises BullMQ, alertes sur échecs définitifs et minimisation stricte des données.                |
+| Journaux             | Ne pas exposer de données sensibles.                               | Logs structurés stdout, redaction de jetons/médias/coordonnées ; rétention Loki définie.                                                                                                                      |
+| Disponibilité        | Éviter les faux déploiements sains.                                | Healthchecks readiness, restart `unless-stopped`, alertes à définir car Alertmanager n’est pas encore inclus dans common-infra. [6]                                                                           |
 
 ## 6. Séquence recommandée
 
@@ -201,7 +208,7 @@ Les choix de domaine et d’identité sont arrêtés. Les réponses suivantes pe
 1. Le VPS Contabo est-il déjà équipé de `shared-traefik`, `optimize-common-infra`, Vault initialisé et unseal, ainsi que des réseaux externes ?
 2. Quelle politique de sauvegarde hors serveur et de conservation est requise pour PostgreSQL et les photos de profil ?
 3. Faut-il déployer un site web membre, le seul backoffice, ou uniquement l’API pour le client Expo dans la première release ?
-4. Quelle solution d’e-mail transactionnel est approuvée lorsque les notifications par e-mail seront activées ?
+4. L’API notification-hub, son realm `notification-hub`, le compte de service `impactc-notification-sender` et l’adresse expéditrice ImpactC sont-ils prêts en préproduction, tandis que le SMTP Keycloak reste configuré séparément pour les e-mails d’identité ?
 5. Une préproduction dédiée est-elle disponible ou faut-il la créer sur le même VPS avec des sous-domaines séparés ?
 
 ## 8. Distribution des APK Android
