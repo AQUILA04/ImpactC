@@ -122,3 +122,14 @@ Les specs Playwright et Jest emploient `@p0`, `@p1`, `@p2` et le domaine, par ex
 
 Les scénarios ont été exercés contre les services locaux NestJS, PostgreSQL et Redis. Les scripts d’onboarding et de match sont versionnés sous `backend-service/test/` ; les scénarios Journey et chat doivent encore être consolidés sous forme de scripts déterministes dans la prochaine itération.
 | Audit et témoignages | Réussi | Création de témoignage brouillon, invisibilité publique avant approbation, publication après approbation et consultation Administrateur d’une violation anti-contact auditée. |
+
+## Couverture Playwright P0 — automatisée
+
+| ID de couverture | Implémentation | État DEV |
+|---|---|---|
+| TD-004, TD-006 | Connexion Responsable, modération via interface et refus RBAC du membre | ✅ Test OK |
+| TD-008, TD-009, TD-011 | Feed admissible, confidentialité de l’intérêt et match réciproque | ✅ Test OK |
+| TD-014, TD-016, TD-018 | Affectation, rendez-vous, consentements, Step 2, terminaison et fermeture du chat | ✅ Test OK |
+| TD-020, TD-022, TD-024 | Message autorisé, violation chiffrée/flagguée, audit Admin et contrôle RBAC | ✅ Test OK |
+
+La suite est exécutée par `npm run test:e2e -- --grep '@p0'` depuis `backoffice-web`. Elle réinitialise `impactc_e2e`, applique les migrations, provisionne les rôles de test et retient traces, vidéo et captures lorsqu’un scénario échoue.

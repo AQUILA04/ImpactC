@@ -1,5 +1,7 @@
-import { Body, Controller, HttpCode, Post, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
+import { CurrentUser, JwtAuthGuard } from '../../common/auth.guard';
+import type { JwtPayload } from '../../common/auth.guard';
 import { AuthService } from './auth.service';
 
 class CredentialsDto {
@@ -24,6 +26,12 @@ export class AuthController {
     const result = await this.auth.login(body.email ?? '', body.password ?? '');
     this.setRefreshCookie(response, result.tokens.refreshToken);
     return { userId: result.userId, role: result.role, accessToken: result.tokens.accessToken };
+  }
+
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  me(@CurrentUser() user: JwtPayload) {
+    return user;
   }
 
   @Post('refresh')
